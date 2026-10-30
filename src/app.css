@@ -148,3 +148,216 @@ td {
 	background: var(--accent);
 	color: #fff;
 }
+
+.title-row {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+.title-row h1 {
+	margin-right: auto;
+}
+
+a.button {
+	display: inline-block;
+	padding: 0.4rem 0.8rem;
+	border-radius: 6px;
+	background: var(--accent);
+	color: #fff;
+	text-decoration: none;
+}
+
+button:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+button.secondary {
+	background: var(--card);
+	color: var(--fg);
+	border-color: var(--line);
+}
+
+.card.wide {
+	max-width: none;
+}
+
+textarea {
+	resize: vertical;
+}
+
+.row {
+	display: flex;
+	gap: 0.75rem;
+	align-items: center;
+	flex-wrap: wrap;
+	margin: 0.75rem 0;
+}
+.row label {
+	flex: 1;
+}
+label.check {
+	flex-direction: row;
+	align-items: center;
+	flex: 0 0 auto;
+}
+
+.badge.muted {
+	background: var(--line);
+	color: var(--fg);
+}
+
+section {
+	margin: 2rem 0;
+}
+section.draft {
+	padding: 1rem 1.25rem;
+	border: 2px dashed var(--accent);
+	border-radius: 10px;
+}
+
+.prompt {
+	font-family: ui-monospace, monospace;
+	font-size: 0.85rem;
+	padding: 0.6rem 0.8rem;
+	background: var(--card);
+	border: 1px solid var(--line);
+	border-radius: 6px;
+}
+
+.mentor {
+	padding: 0.75rem 1rem;
+	border-left: 4px solid var(--accent);
+	background: var(--card);
+}
+
+.steps ol {
+	margin: 0;
+	padding-left: 1.25rem;
+	color: var(--muted);
+	font-size: 0.9rem;
+}
+
+.samples {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+	gap: 0.75rem;
+	margin: 0.75rem 0;
+}
+.samples figure {
+	margin: 0;
+}
+.samples img,
+.samples .placeholder {
+	width: 100%;
+	aspect-ratio: 1;
+	object-fit: cover;
+	border-radius: 6px;
+	border: 1px solid var(--line);
+	display: block;
+}
+.samples .placeholder {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.4rem;
+	font-size: 0.8rem;
+	color: var(--muted);
+	background: var(--card);
+	text-align: center;
+	padding: 0.5rem;
+	box-sizing: border-box;
+	overflow: hidden;
+}
+.samples figure.stale img {
+	opacity: 0.45;
+}
+.samples figcaption {
+	font-size: 0.8rem;
+	color: var(--muted);
+	margin-top: 0.25rem;
+}
+
+.spinner {
+	display: inline-block;
+	width: 0.9em;
+	height: 0.9em;
+	border: 2px solid var(--line);
+	border-top-color: var(--accent);
+	border-radius: 50%;
+	animation: spin 0.8s linear infinite;
+	vertical-align: middle;
+}
+@keyframes spin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.style-list {
+	list-style: none;
+	padding: 0;
+	display: grid;
+	gap: 1rem;
+}
+.style-list a {
+	display: block;
+	padding: 0.75rem;
+	border: 1px solid var(--line);
+	border-radius: 8px;
+	background: var(--card);
+	color: inherit;
+	text-decoration: none;
+}
+.style-list .thumbs {
+	display: grid;
+	grid-template-columns: repeat(5, 1fr);
+	gap: 0.4rem;
+}
+.style-list .thumbs img {
+	width: 100%;
+	aspect-ratio: 1;
+	object-fit: cover;
+	border-radius: 4px;
+}
+.style-list .empty-thumb {
+	grid-column: 1 / -1;
+	padding: 2rem;
+	text-align: center;
+	color: var(--muted);
+}
+.style-list .meta {
+	display: flex;
+	gap: 0.5rem;
+	align-items: center;
+	margin-top: 0.5rem;
+}
+
+details {
+	margin: 0.75rem 0;
+}
+summary {
+	cursor: pointer;
+}
+
+.danger-zone {
+	display: flex;
+	justify-content: space-between;
+	gap: 1rem;
+	flex-wrap: wrap;
+	padding-top: 1rem;
+	border-top: 1px solid var(--line);
+}
+
+.phases li {
+	margin: 0.5rem 0;
+}
+.phases li.soon {
+	color: var(--muted);
+}
+
+.row-label {
+	margin: 0.75rem 0 -0.25rem;
+	font-size: 0.85rem;
+	font-weight: 600;
+}

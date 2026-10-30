@@ -246,10 +246,22 @@ output, validated before saving.
 
 ### Jobs
 
-The GPU is one shared resource. Requests enqueue a `job`; one worker runs
-image jobs serially (text jobs may run alongside). Jobs survive restarts,
-report progress over SSE, and can be cancelled. Users see their queue
-position.
+The GPU is one shared resource. Requests enqueue a `job` row; one in-process
+worker runs jobs one at a time, oldest first. Jobs left running by a restart
+are queued again, and cancelled jobs are aborted (ComfyUI prompts are removed
+from its queue or interrupted). Pages poll every two seconds while their jobs
+run; with one or two users that is simpler than server-sent events.
+
+### Styles as built
+
+Each style has numbered versions: at most one **draft**, one **approved**
+version in use, and **superseded** history. The AI art director drafts the
+style prompt from the user's description and revises it from their feedback;
+the user can also edit it directly. Samples render five fixed subjects
+(figure, face, interior, exterior, action) with seeds kept across versions, so
+a revision's samples sit under the in-use version's for comparison. Approval
+requires a full sample set made from the current prompt. See
+`docs/style-evaluation.md`.
 
 ## Hosting and exposure
 

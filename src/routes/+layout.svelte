@@ -17,6 +17,7 @@
 	<span class="version">v{__APP_VERSION__}</span>
 	{#if data.user}
 		<nav>
+			<a href={resolve('/styles')}>Styles</a>
 			{#if data.user.isAdmin}<a href={resolve('/admin/users')}>Users</a>{/if}
 			<a href={resolve('/account')}>{data.user.username}</a>
 			<form method="POST" action={resolve('/logout')}>

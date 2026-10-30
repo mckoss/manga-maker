@@ -1,13 +1,18 @@
 import { error, redirect } from '@sveltejs/kit';
-import type { Handle } from '@sveltejs/kit/hooks';
+import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { getDb } from '#lib/server/db/index.js';
 import { isCrossSiteWrite } from '#lib/server/csrf.js';
+import { startWorker } from '#lib/server/worker.js';
 import { isAdmin } from '#lib/server/auth/admins.js';
 import {
 	SESSION_COOKIE,
 	sessionCookieOptions,
 	validateSession
 } from '#lib/server/auth/sessions.js';
+
+export const init: ServerInit = () => {
+	startWorker();
+};
 
 /** Routes reachable without signing in. */
 const PUBLIC_PATHS = ['/login'];
