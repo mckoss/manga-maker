@@ -1,7 +1,6 @@
 # Manga Maker — Plan (draft)
 
-Status: **draft.** Items marked _Q<n>_ wait on the open questions at the
-bottom.
+Status: **in progress.** Build progress is tracked in `CHECKLIST.md`.
 
 ## Goals
 
@@ -102,7 +101,8 @@ before any character is drawn so every reference sheet is made in it.
   panel grids, gutters, speech bubbles, captions and SFX rendered as vector
   overlays with a real font. Image models letter text badly; this keeps
   dialogue editable.
-- Export pages as PNG and the whole comic as PDF (_Q6_).
+- **Export the whole comic as a print-ready PDF for publishing** (and pages
+  as PNG). No public sharing links; the site is private to its users.
 
 ### Change propagation
 
@@ -307,5 +307,4 @@ Each milestone ends usable on the tailnet.
 
 ## Open questions
 
-- **Q6** Sharing: export files only, or a public read-only link for finished
-  comics?
+None at the moment; new ones go in `QUESTIONS.md`.

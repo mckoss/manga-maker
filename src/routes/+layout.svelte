@@ -1,8 +1,10 @@
 <script lang="ts">
 	import favicon from '#lib/assets/favicon.svg';
+	import { resolve } from '$app/paths';
 	import type { LayoutProps } from './$types';
+	import '../app.css';
 
-	let { children }: LayoutProps = $props();
+	let { children, data }: LayoutProps = $props();
 </script>
 
 <svelte:head>
@@ -11,36 +13,19 @@
 </svelte:head>
 
 <header>
-	<span class="name">Manga Maker</span>
+	<a class="name" href={resolve('/')}>Manga Maker</a>
 	<span class="version">v{__APP_VERSION__}</span>
+	{#if data.user}
+		<nav>
+			{#if data.user.isAdmin}<a href={resolve('/admin/users')}>Users</a>{/if}
+			<a href={resolve('/account')}>{data.user.username}</a>
+			<form method="POST" action={resolve('/logout')}>
+				<button type="submit" class="link">Sign out</button>
+			</form>
+		</nav>
+	{/if}
 </header>
 
 <main>
 	{@render children()}
 </main>
-
-<style>
-	:global(body) {
-		margin: 0;
-		font-family: system-ui, sans-serif;
-		color: #1a1a1a;
-		background: #fafafa;
-	}
-	header {
-		display: flex;
-		align-items: baseline;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
-		border-bottom: 1px solid #ddd;
-	}
-	.name {
-		font-weight: 600;
-	}
-	.version {
-		font-size: 0.75rem;
-		color: #888;
-	}
-	main {
-		padding: 1rem;
-	}
-</style>
