@@ -27,3 +27,6 @@ vite.config.ts.timestamp-*
 
 # Host-specific deployment config (tunnel/proxy hostnames, tokens) — keep private
 /deploy/local
+
+# Admin usernames for this server (see config/admins.example.txt)
+/config/admins.txt

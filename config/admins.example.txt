@@ -1,0 +1,3 @@
+# Usernames that have admin rights: one per line; blank lines and # comments
+# are ignored. Copy to config/admins.txt (gitignored) on the server.
+admin@example.com

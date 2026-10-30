@@ -167,7 +167,7 @@ jobs against a memory budget, prefers mid-size LLMs (Qwen 3.8 27B, Gemma 4
 
 | Entity          | Key fields                                                                           |
 | --------------- | ------------------------------------------------------------------------------------ |
-| user            | username (unique), password hash (scrypt), is_admin, created                         |
+| user            | username (unique), password hash (scrypt), created                                   |
 | session         | token hash, user, expires                                                            |
 | style           | owner, name, colour mode, spec (JSON), prompt fragment, model settings, sheet assets |
 | project         | owner, title, logline, genre, tone, page target, style, reading direction, phase     |
@@ -190,13 +190,18 @@ jobs against a memory budget, prefers mid-size LLMs (Qwen 3.8 27B, Gemma 4
   `SameSite=Lax` cookie; only a hash is stored. SvelteKit's built-in CSRF
   origin check stays on.
 - Login rate limiting per username and per IP.
-- **No public sign-up.** An **admin** account adds other accounts and resets
-  their passwords from an admin page. Usernames may be email addresses (the
-  first admin is `mckoss@gmail.com`), but nothing is ever emailed.
+- **No public sign-up.** An **admin** adds other accounts and resets their
+  passwords from an admin page. Usernames may be email addresses, but nothing
+  is ever emailed.
+- **Admins are listed in `config/admins.txt`** (gitignored; one username per
+  line, `config/admins.example.txt` shows the format), so the public repo
+  never names them. Admin rights are read from the file, not stored in the
+  database: editing the file grants or revokes them.
 - **Bootstrap and recovery** by CLI on the server only:
-  `npm run user -- add <username> --admin` prompts for the password (never
-  taken from arguments or environment) and is how the first admin is created.
-  The same CLI resets a password if the admin is locked out.
+  `npm run user -- add <username>` prompts for the password (never taken from
+  arguments or environment). Creating the first account named in
+  `config/admins.txt` this way is how the first admin starts. The same CLI
+  resets a password if an admin is locked out.
 - Accounts exist mainly because the site is internet-facing.
 - Every query is scoped by owner; tests cover cross-user access.
 - In production the app runs as its own unprivileged macOS user, not the
