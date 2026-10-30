@@ -43,6 +43,27 @@ Environment variables (all optional):
 | `DATA_DIR`      | `data`                     | Runtime data (gitignored)   |
 | `DATABASE_PATH` | `$DATA_DIR/manga-maker.db` | SQLite database             |
 | `ADMINS_FILE`   | `config/admins.txt`        | Admin usernames, one a line |
+| `COMFYUI_URL`   | `http://127.0.0.1:8188`    | ComfyUI server for images   |
+| `OLLAMA_URL`    | `http://127.0.0.1:11434`   | Ollama server for text      |
+| `OLLAMA_MODEL`  | `qwen3.8:27b-mlx`          | Model for the AI mentor     |
+| `AI_BACKEND`    | (real services)            | `fake` for placeholder AI   |
+
+### AI services
+
+Manga Maker expects [Ollama](https://ollama.com) and
+[ComfyUI](https://github.com/comfyanonymous/ComfyUI) running locally. The
+ComfyUI workflows it submits are in `workflows/`; they need these models in
+ComfyUI's model folders:
+
+- `diffusion_models/qwen_image_2512_bf16.safetensors`,
+  `text_encoders/qwen_2.5_vl_7b.safetensors`, `vae/qwen_image_vae.safetensors`,
+  `loras/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors`
+- `diffusion_models/z_image_turbo_bf16.safetensors`,
+  `text_encoders/qwen_3_4b.safetensors`, `vae/ae.safetensors`
+
+Without them, run with `AI_BACKEND=fake` to try the app with placeholder images
+and canned AI replies. See [docs/style-evaluation.md](docs/style-evaluation.md)
+for how the models perform.
 
 ### Accounts
 
