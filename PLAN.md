@@ -62,6 +62,11 @@ certificate. Only devices joined to the tailnet can reach it.
 tailscale serve --bg --https=443 http://127.0.0.1:5173   # dev server
 ```
 
+The dev server runs as a launchd agent so it survives logout of the shell
+and restarts on failure, with hot reload intact:
+`deploy/launchd/install-dev.sh` (`uninstall` to remove). Logs go to
+`~/Library/Logs/manga-maker/`.
+
 **Later (public):** undecided. Options considered so far:
 
 1. **Cloudflare Tunnel** — no open inbound ports, hides the home IP, free TLS,
