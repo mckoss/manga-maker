@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
+import pkg from './package.json' with { type: 'json' };
 
 export default defineConfig({
 	plugins: [
@@ -13,6 +14,15 @@ export default defineConfig({
 			adapter: adapter()
 		})
 	],
+	define: {
+		__APP_VERSION__: JSON.stringify(pkg.version)
+	},
+	server: {
+		// Bind IPv4 loopback explicitly; Tailscale Serve proxies to 127.0.0.1.
+		host: '127.0.0.1',
+		// Allow access through Tailscale Serve (https://<machine>.<tailnet>.ts.net).
+		allowedHosts: ['.ts.net']
+	},
 	test: {
 		expect: { requireAssertions: true },
 		projects: [

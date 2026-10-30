@@ -54,7 +54,15 @@ The repo stays public, so it holds only **generic** deployment material:
 - `deploy/local/` — gitignored; the real hostnames, tunnel IDs, and tokens.
 - `.env` — gitignored; `.env.example` documents each variable.
 
-Exposure options to decide between (_TBD_):
+**Now (testing):** Tailscale Serve proxies HTTPS on the machine's tailnet
+name to the app on `127.0.0.1`. Tailscale provisions and renews the
+certificate. Only devices joined to the tailnet can reach it.
+
+```sh
+tailscale serve --bg --https=443 http://127.0.0.1:5173   # dev server
+```
+
+**Later (public):** undecided. Options considered so far:
 
 1. **Cloudflare Tunnel** — no open inbound ports, hides the home IP, free TLS,
    optional Cloudflare Access in front.
@@ -62,12 +70,14 @@ Exposure options to decide between (_TBD_):
    only and bandwidth limits.
 3. **Caddy + router port forward** — Caddy is installed; exposes the home IP
    and needs dynamic DNS.
+4. **Railway-hosted proxy joined to the tailnet** — keeps DNS where it is;
+   no CDN or edge protection, egress cost per image.
 
 ## Milestones
 
 _TBD after goals._ Rough shape:
 
-0. Repo, CI, scaffold _(done)_
+0. Repo, CI, scaffold, placeholder page on the tailnet _(done)_
 1. Backend adapters + job queue + storage, smoke-tested against Ollama
 2. Core user flow (per goals)
 3. Auth and abuse limits (required before public exposure)
