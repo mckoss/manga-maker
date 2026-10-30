@@ -1,11 +1,11 @@
 import { fail } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.js';
-import { createSession, SESSION_COOKIE } from '#lib/server/auth/sessions.js';
+import { createSession, SESSION_COOKIE, sessionCookieOptions } from '#lib/server/auth/sessions.js';
 import { authenticate, setPassword, UserError } from '#lib/server/auth/users.js';
 import type { Actions } from './$types';
 
 export const actions: Actions = {
-	password: async ({ request, locals, cookies }) => {
+	password: async ({ request, locals, cookies, url }) => {
 		const user = locals.user!;
 		const form = await request.formData();
 		const current = String(form.get('current') ?? '');
@@ -25,7 +25,7 @@ export const actions: Actions = {
 		}
 		// setPassword signs out every session; start a fresh one for this browser.
 		const { token, expiresAt } = createSession(db, user.id);
-		cookies.set(SESSION_COOKIE, token, { path: '/', expires: expiresAt });
+		cookies.set(SESSION_COOKIE, token, sessionCookieOptions(url, expiresAt));
 		return { message: 'Password changed. Other devices have been signed out.' };
 	}
 };

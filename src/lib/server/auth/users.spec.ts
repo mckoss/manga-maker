@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { openDb, type Db } from '../db';
 import { authenticate, createUser, deleteUser, listUsers, setPassword, UserError } from './users';
-import { createSession, SESSION_LIFETIME_MS, validateSession } from './sessions';
+import {
+	createSession,
+	SESSION_LIFETIME_MS,
+	sessionCookieOptions,
+	validateSession
+} from './sessions';
 
 const PASSWORD = 'a long enough password';
 let db: Db;
@@ -71,5 +76,18 @@ describe('sessions', () => {
 		expect(validateSession(db, token, now + SESSION_LIFETIME_MS + 1)).toBeUndefined();
 		expect(validateSession(db, token, now)).toBeUndefined(); // deleted on expiry
 		expect(validateSession(db, 'not-a-token')).toBeUndefined();
+	});
+});
+
+describe('session cookie', () => {
+	const expires = new Date();
+	it('is Secure behind an https proxy that forwards plain http', () => {
+		expect(sessionCookieOptions(new URL('http://mac-studio.example.ts.net/'), expires).secure).toBe(
+			true
+		);
+	});
+	it('is not Secure on plain-http localhost', () => {
+		expect(sessionCookieOptions(new URL('http://localhost:5173/'), expires).secure).toBe(false);
+		expect(sessionCookieOptions(new URL('http://127.0.0.1:5173/'), expires).secure).toBe(false);
 	});
 });

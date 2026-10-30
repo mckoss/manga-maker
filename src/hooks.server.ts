@@ -3,7 +3,11 @@ import type { Handle } from '@sveltejs/kit/hooks';
 import { getDb } from '#lib/server/db/index.js';
 import { isCrossSiteWrite } from '#lib/server/csrf.js';
 import { isAdmin } from '#lib/server/auth/admins.js';
-import { SESSION_COOKIE, validateSession } from '#lib/server/auth/sessions.js';
+import {
+	SESSION_COOKIE,
+	sessionCookieOptions,
+	validateSession
+} from '#lib/server/auth/sessions.js';
 
 /** Routes reachable without signing in. */
 const PUBLIC_PATHS = ['/login'];
@@ -21,7 +25,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 			const { user } = session;
 			event.locals.user = { ...user, isAdmin: isAdmin(user.username) };
 			if (session.renewed) {
-				event.cookies.set(SESSION_COOKIE, token, { path: '/', expires: session.expiresAt });
+				event.cookies.set(
+					SESSION_COOKIE,
+					token,
+					sessionCookieOptions(event.url, session.expiresAt)
+				);
 			}
 		} else {
 			event.cookies.delete(SESSION_COOKIE, { path: '/' });

@@ -9,6 +9,16 @@ export const SESSION_LIFETIME_MS = 30 * DAY;
 /** Sessions used with less than this left are extended to a full lifetime. */
 const RENEW_WITHIN_MS = 15 * DAY;
 
+/**
+ * Cookie options for the session cookie. Secure is set explicitly: behind a
+ * TLS-terminating proxy the app sees http://, so SvelteKit's default would
+ * leave it off. Plain-http localhost is the only exception, for local dev.
+ */
+export function sessionCookieOptions(url: URL, expires: Date) {
+	const local = url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname);
+	return { path: '/', expires, httpOnly: true, sameSite: 'lax' as const, secure: !local };
+}
+
 function hashToken(token: string): string {
 	return createHash('sha256').update(token).digest('hex');
 }

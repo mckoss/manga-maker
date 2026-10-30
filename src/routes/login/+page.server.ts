@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.js';
 import { authenticate } from '#lib/server/auth/users.js';
-import { createSession, SESSION_COOKIE } from '#lib/server/auth/sessions.js';
+import { createSession, SESSION_COOKIE, sessionCookieOptions } from '#lib/server/auth/sessions.js';
 import { loginLimiter } from '#lib/server/auth/rate-limit.js';
 import { normalizeUsername } from '#lib/server/auth/username.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -36,7 +36,7 @@ export const actions: Actions = {
 		loginLimiter.reset(username);
 
 		const { token, expiresAt } = createSession(db, user.id);
-		cookies.set(SESSION_COOKIE, token, { path: '/', expires: expiresAt });
+		cookies.set(SESSION_COOKIE, token, sessionCookieOptions(url, expiresAt));
 		redirect(303, safeNext(url.searchParams.get('next')));
 	}
 };
