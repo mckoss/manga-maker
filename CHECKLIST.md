@@ -39,7 +39,19 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [x] Settings: title, logline, reading direction; delete
 - [x] Playwright end-to-end tests in CI; `main` requires `check` and `e2e`
 
+## Milestone 2a: characters
+
+- [x] Characters per manga: name, role, the user's notes, personality, wants
+      and needs, backstory, speech; age, appearance, outfit
+- [x] AI story editor develops the profile from a brief, using the logline,
+      the style's setting and the rest of the cast; revises from feedback
+- [x] Design options: four full-body pictures in the approved style; choose
+      one as the reference; flags pictures from an older look or style
+- [x] Cast count in the sidebar; unit and e2e tests
+- [x] Real-AI check and prompt fixes: `docs/character-evaluation.md`
+
 ## Next
 
-- [ ] Characters (milestone 2): interview, visual spec, reference sheets per style
+- [ ] Character sheets: turnaround and expressions from the reference
+      (Qwen-Image-Edit)
 - [ ] AI critique of samples with a vision model (Gemma 4)

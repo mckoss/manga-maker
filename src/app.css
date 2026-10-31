@@ -180,6 +180,10 @@ button.secondary {
 	color: var(--fg);
 	border-color: var(--line);
 }
+button.small {
+	padding: 0.2rem 0.5rem;
+	font-size: 0.8rem;
+}
 
 .card.wide {
 	max-width: none;
@@ -187,6 +191,9 @@ button.secondary {
 
 textarea {
 	resize: vertical;
+	/* Grow to fit the text where supported; rows sets the starting height. */
+	field-sizing: content;
+	min-height: 3lh;
 }
 
 .row {
@@ -337,4 +344,7 @@ fieldset {
 }
 fieldset .hint {
 	margin: 0;
+}
+fieldset:disabled {
+	opacity: 0.6;
 }

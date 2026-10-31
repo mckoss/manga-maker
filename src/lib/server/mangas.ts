@@ -16,7 +16,7 @@ export function isReadingDirection(value: string): value is ReadingDirection {
 
 export type StyleStatus = 'none' | 'draft' | 'approved';
 
-function ownedManga(db: Db, ownerId: number, mangaId: number) {
+export function ownedManga(db: Db, ownerId: number, mangaId: number) {
 	const manga = db
 		.select()
 		.from(mangas)

@@ -89,7 +89,7 @@ export function isImageModel(value: string): value is ImageModelId {
 }
 
 /** End a prompt part with a full stop, so the next part starts a new sentence. */
-function sentence(text: string): string {
+export function sentence(text: string): string {
 	const t = text.trim();
 	return !t || /[.!?]$/.test(t) ? t : `${t}.`;
 }
