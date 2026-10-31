@@ -18,6 +18,7 @@ import {
 	listStyles,
 	picturePrompt,
 	positiveOnly,
+	toneOnly,
 	answerQuestions,
 	requestPictures,
 	requestPrompt,
@@ -114,7 +115,7 @@ describe('style pipeline', () => {
 		expect(style.ready).toBe(true);
 		expect(style.pictures.every((p) => current(p.item)?.assetHash)).toBe(true);
 		expect(image.calls[0].prompt).toBe(
-			'Black and white manga art, black ink with screentone shading, no color. heavy ink, deep blacks, round 1. A ronin standing, round 2.'
+			'Black and white manga art, black ink with screentone shading. heavy ink, deep blacks, round 1. A ronin standing, round 2. Drawn entirely in black ink on white paper.'
 		);
 		expect(listStyles(db, owner)[0]).toMatchObject({ ready: true });
 		expect(listStyles(db, owner)[0].thumbs).toHaveLength(SAMPLE_SUBJECTS.length);
@@ -182,7 +183,9 @@ describe('style pipeline', () => {
 		expect(figure.currentId).toBe(second.id);
 		expect(second.seed).toBe(42);
 		expect(second.guidance).toBe('from a low angle');
-		expect(image.calls.at(-1)!.prompt).toMatch(/A ronin standing, round 2\. From a low angle\.$/i);
+		expect(image.calls.at(-1)!.prompt).toMatch(
+			/A ronin standing, round 2\. From a low angle\. Drawn entirely in black ink/i
+		);
 
 		useVersion(db, access, first.id, { lock: true });
 		figure = getStyle(db, owner, id).pictures[0].item;
@@ -374,7 +377,23 @@ describe('prompt compilation', () => {
 		expect(
 			picturePrompt({ colorMode: 'grayscale', prompt: 'ink' }, 'A cat', 'make it smaller')
 		).toBe(
-			'Grayscale manga art with ink outlines and soft gray shading, no color. ink. A cat. make it smaller.'
+			'Grayscale manga art with ink outlines and soft gray shading. ink. A cat. make it smaller. Drawn entirely in shades of gray.'
+		);
+	});
+
+	it('keeps hues and negation out of pictures that have no color', () => {
+		expect(
+			picturePrompt(
+				{ colorMode: 'grayscale', prompt: 'ink wash' },
+				'The empty dirt road winds past lush green rice paddies under a bright blue-green sky. No people.',
+				'no color, misty'
+			)
+		).toBe(
+			'Grayscale manga art with ink outlines and soft gray shading. ink wash. The empty dirt road winds past lush rice paddies under a bright sky. No people. misty. Drawn entirely in shades of gray.'
+		);
+		expect(toneOnly('color', 'a red lantern')).toBe('a red lantern');
+		expect(toneOnly('bw', 'Red lanterns, a golden-hour glow; credible greenery.')).toBe(
+			'lanterns, a hour glow; credible greenery.'
 		);
 	});
 
