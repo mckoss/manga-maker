@@ -30,9 +30,21 @@ The top level is the user's collection of **manga**, each shown with its
 title and a cover thumbnail (the style's figure sample until there is a real
 cover). Opening a manga shows a sidebar of its steps: **Style, Characters,
 Locations, Plot, Script, Panels, Pages**. The style, characters and locations
-belong to that manga; to reuse one in another manga the user copies it, so
-changing it in one comic never silently changes another. Each carries
+belong to that manga; for now, to reuse one in another manga the user copies
+it, so changing it in one comic never silently changes another. Each carries
 reference images that every later generation draws on.
+
+### Series (backlog)
+
+A series reuses its cast and look across stories, so copies are the wrong
+default. An **original source** manga defines the core style, characters and
+locations; a later manga **includes them by reference**, chosen explicitly:
+the style, specific characters, specific locations. A referenced style
+replaces the manga's own styling. The source stays the one place they are
+edited, and with versioned items an edit there marks the dependent work in
+every including manga out of date. Open questions: whether an including manga
+can pin a source version or override one detail for its story, and whether a
+reference can later be turned into an independent copy.
 
 Each manga starts with a style, then moves through the creative phases. Each phase produces structured data
 (not just prose), and later phases build on it. Every phase has a **mentor**:
