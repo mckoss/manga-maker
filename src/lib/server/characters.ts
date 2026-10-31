@@ -249,7 +249,12 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 							}
 				),
 		/** Drawn from a style prompt other than the current one. */
-		oldStyle: style !== undefined && img.stylePromptVersionId !== style.promptVersionId
+		oldStyle:
+			style !== undefined &&
+			img.prompt !== '' &&
+			img.stylePromptVersionId !== style.promptVersionId,
+		/** A design option written but not drawn yet, for the user to edit and draw. */
+		undrawn: undrawn(img, pendingIds)
 	}));
 	const sheet = SHEET_VIEWS.map((view) => {
 		const image = decorated.findLast((img) => img.kind === 'sheet' && img.view === view.key);
@@ -273,6 +278,8 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 		candidates: decorated.filter((img) => img.kind === 'candidate'),
 		sheet,
 		developing: pending.some((j) => j.kind === 'character.develop'),
+		/** The AI is writing a new set of design options. */
+		designing: pending.some((j) => j.kind === 'character.designs'),
 		developError: develop?.status === 'failed' ? develop.error : null,
 		busy: pending.length > 0
 	};
@@ -343,13 +350,20 @@ export const PROFILE_FIELDS = [
 
 export type Profile = Record<(typeof PROFILE_FIELDS)[number], string>;
 
+/** The profile fields the design options are written from. */
+const LOOK_FIELDS = ['brief', 'age', 'appearance', 'outfit'] as const;
+
+function lookChanged(before: Character, after: Partial<Character>): boolean {
+	return LOOK_FIELDS.some((k) => after[k] !== undefined && after[k] !== before[k]);
+}
+
 export function updateCharacter(
 	db: Db,
 	ownerId: number,
 	characterId: number,
 	profile: Profile
-): void {
-	const { character } = ownedCharacter(db, ownerId, characterId);
+): { redesigned: boolean } {
+	const { character, series: owner } = ownedCharacter(db, ownerId, characterId);
 	if (!isRole(profile.role)) throw new CharacterError('Choose a role.');
 	const values = Object.fromEntries(PROFILE_FIELDS.map((k) => [k, profile[k].trim()])) as Profile;
 	if (!values.name) throw new CharacterError('Give the character a name.');
@@ -358,6 +372,10 @@ export function updateCharacter(
 		.where(eq(characters.id, characterId))
 		.run();
 	touchSeries(db, character.seriesId);
+	// A changed look calls for designs that vary what it now leaves open.
+	const redesigned =
+		lookChanged(character, values) && autoProposeDesigns(db, ownerId, characterId, owner);
+	return { redesigned };
 }
 
 /** Ask the AI to revise the profile, taking the user's feedback into account. */
@@ -371,56 +389,49 @@ export function requestDevelop(
 	enqueue(db, ownerId, 'character.develop', { characterId, feedback: feedback.trim() });
 }
 
+/** Candidate pictures to keep through a new round: the reference, and chapters' pins. */
+function keptImageIds(db: Db, character: Character): number[] {
+	return [
+		character.referenceImageId ?? -1,
+		...db
+			.select({ id: chapterCast.pinnedImageId })
+			.from(chapterCast)
+			.where(and(eq(chapterCast.characterId, character.id), isNotNull(chapterCast.pinnedImageId)))
+			.all()
+			.map((r) => r.id!)
+	];
+}
+
 /**
- * Draw a fresh set of design candidates in the series' style: the AI first
- * proposes a different design for each (see `designsHandler`), then each is
- * drawn. The chosen reference is kept; other candidates are replaced.
+ * Replace the design options with new ones the AI writes (see
+ * `designsHandler`). The reference and pinned designs are kept. The new
+ * designs wait, undrawn, for the user to read, edit and draw them, unless
+ * `draw` is set.
  */
-export function requestCandidates(
+function proposeDesigns(
 	db: Db,
 	ownerId: number,
-	characterId: number,
-	opts: { newSeed?: boolean } = {}
+	character: Character,
+	style: DrawingStyle,
+	draw = false
 ): void {
-	const owned = ownedCharacter(db, ownerId, characterId);
-	let character = owned.character;
-	const style = readyStyle(db, owned.series);
-	if (!style) throw new CharacterError(NO_STYLE);
-	if (!character.appearance) throw new CharacterError('Describe how the character looks first.');
+	const characterId = character.id;
 	cancelJobs(
 		db,
 		pendingJobs(db, [characterId])
 			.filter((j) => j.kind === 'character.candidate' || j.kind === 'character.designs')
 			.map((j) => j.id)
 	);
-	if (opts.newSeed) {
-		character = db
-			.update(characters)
-			.set({ seed: randomSeed() })
-			.where(eq(characters.id, characterId))
-			.returning()
-			.get();
-	}
-	// Keep the reference, and any design a chapter is pinned to.
-	const keep = [
-		character.referenceImageId ?? -1,
-		...db
-			.select({ id: chapterCast.pinnedImageId })
-			.from(chapterCast)
-			.where(and(eq(chapterCast.characterId, characterId), isNotNull(chapterCast.pinnedImageId)))
-			.all()
-			.map((r) => r.id!)
-	];
 	db.delete(characterImages)
 		.where(
 			and(
 				eq(characterImages.characterId, characterId),
 				eq(characterImages.kind, 'candidate'),
-				notInArray(characterImages.id, keep)
+				notInArray(characterImages.id, keptImageIds(db, character))
 			)
 		)
 		.run();
-	// The prompts are written once the AI has proposed the designs.
+	// The designs are filled in once the AI has proposed them.
 	const imageIds = Array.from(
 		{ length: CANDIDATE_COUNT },
 		(_, i) =>
@@ -437,11 +448,153 @@ export function requestCandidates(
 				.returning()
 				.get().id
 	);
-	const job = enqueue(db, ownerId, 'character.designs', { characterId, imageIds });
+	const job = enqueue(db, ownerId, 'character.designs', { characterId, imageIds, draw });
 	db.update(characterImages)
 		.set({ jobId: job.id })
 		.where(inArray(characterImages.id, imageIds))
 		.run();
+}
+
+/**
+ * Propose new designs after the look changed, when there is a look and a
+ * style. Returns whether it did.
+ */
+function autoProposeDesigns(db: Db, ownerId: number, characterId: number, owner: Series): boolean {
+	const character = db.select().from(characters).where(eq(characters.id, characterId)).get();
+	const style = styleForContext(db, owner);
+	if (!character?.appearance || !style) return false;
+	proposeDesigns(db, ownerId, character, style);
+	return true;
+}
+
+/** Ask the AI for a new set of design options, without drawing them yet. */
+export function requestDesigns(db: Db, ownerId: number, characterId: number): void {
+	const { character, series: owner } = ownedCharacter(db, ownerId, characterId);
+	const style = styleForContext(db, owner);
+	if (!style) throw new CharacterError('Describe the series’ style first.');
+	if (!character.appearance) throw new CharacterError('Describe how the character looks first.');
+	proposeDesigns(db, ownerId, character, style);
+}
+
+/** A design option written but not drawn yet, nor waiting to be. */
+function undrawn(img: CharacterImage, pendingIds: Set<number>): boolean {
+	return (
+		img.kind === 'candidate' &&
+		img.appearance !== null &&
+		!img.assetHash &&
+		(img.jobId === null || !pendingIds.has(img.jobId))
+	);
+}
+
+/** Queue the drawing of one candidate from its own design. */
+function queueCandidate(
+	db: Db,
+	ownerId: number,
+	image: CharacterImage,
+	style: DrawingStyle,
+	character: Character
+): void {
+	const job = enqueue(db, ownerId, 'character.candidate', {
+		characterId: character.id,
+		imageId: image.id
+	});
+	db.update(characterImages)
+		.set({
+			prompt: characterPrompt(style, {
+				...character,
+				appearance: image.appearance ?? character.appearance,
+				outfit: image.outfit ?? character.outfit
+			}),
+			stylePromptVersionId: style.promptVersionId,
+			jobId: job.id
+		})
+		.where(eq(characterImages.id, image.id))
+		.run();
+}
+
+/**
+ * Draw every design option not drawn yet, in the series' style. With none
+ * waiting, the AI proposes a new set and each is drawn as soon as it is
+ * written.
+ */
+export function requestCandidates(db: Db, ownerId: number, characterId: number): void {
+	const { character, series: owner } = ownedCharacter(db, ownerId, characterId);
+	const style = readyStyle(db, owner);
+	if (!style) throw new CharacterError(NO_STYLE);
+	if (!character.appearance) throw new CharacterError('Describe how the character looks first.');
+	const pending = pendingJobs(db, [characterId]);
+	if (pending.some((j) => j.kind === 'character.designs')) {
+		throw new CharacterError('The AI is still writing the designs.');
+	}
+	const pendingIds = new Set(pending.map((j) => j.id));
+	const waiting = imagesOf(db, characterId).filter((img) => undrawn(img, pendingIds));
+	if (!waiting.length) return proposeDesigns(db, ownerId, character, style, true);
+	for (const image of waiting) queueCandidate(db, ownerId, image, style, character);
+}
+
+export interface DesignEdit {
+	variant: string;
+	appearance: string;
+	outfit: string;
+}
+
+/**
+ * Draw one design option from the user's version of its text, or redraw it.
+ * A redraw with the same text uses a new seed, to give a different picture.
+ * The reference and pinned designs stay as they are: the edit becomes a new
+ * option beside them.
+ */
+export function drawDesign(
+	db: Db,
+	ownerId: number,
+	characterId: number,
+	imageId: number,
+	edit: DesignEdit
+): void {
+	const { character, series: owner } = ownedCharacter(db, ownerId, characterId);
+	const style = readyStyle(db, owner);
+	if (!style) throw new CharacterError(NO_STYLE);
+	const image = db.select().from(characterImages).where(eq(characterImages.id, imageId)).get();
+	if (!image || image.characterId !== characterId || image.kind !== 'candidate') {
+		throw new CharacterError('Design not found.');
+	}
+	const pendingIds = new Set(pendingJobs(db, [characterId]).map((j) => j.id));
+	if (image.jobId !== null && pendingIds.has(image.jobId)) {
+		throw new CharacterError('That design is still being written or drawn.');
+	}
+	const appearance = positiveOnly(edit.appearance.trim());
+	const outfit = positiveOnly(edit.outfit.trim());
+	if (!appearance) throw new CharacterError('Describe how this design looks.');
+	const variant = edit.variant.trim() || image.variant || 'Your design';
+	const sameText = appearance === image.appearance && outfit === image.outfit;
+	const values = {
+		variant,
+		appearance,
+		outfit,
+		seed: image.assetHash && sameText ? randomSeed() : image.seed,
+		assetHash: null,
+		thumbHash: null
+	};
+	const target = keptImageIds(db, character).includes(imageId)
+		? db
+				.insert(characterImages)
+				.values({
+					...values,
+					characterId,
+					kind: 'candidate',
+					prompt: '',
+					seed: randomSeed(),
+					createdAt: new Date()
+				})
+				.returning()
+				.get()
+		: db
+				.update(characterImages)
+				.set(values)
+				.where(eq(characterImages.id, imageId))
+				.returning()
+				.get();
+	queueCandidate(db, ownerId, target, style, character);
 }
 
 /** Make a finished candidate the character's reference picture. */
@@ -664,6 +817,10 @@ const developHandler: JobHandler = async (job, { db, ai, signal }) => {
 		if (reply[key].trim()) update[key] = text(reply[key], true);
 	}
 	db.update(characters).set(update).where(eq(characters.id, characterId)).run();
+	// A new look calls for new designs.
+	if (lookChanged(row.character, update)) {
+		autoProposeDesigns(db, job.userId, characterId, row.series);
+	}
 };
 
 const DESIGNS_SYSTEM = `You are an experienced manga character designer. You propose clearly different visual designs for one character, so the user can pick the look they like best.
@@ -724,11 +881,17 @@ export function designMessages(character: Character, owner: Series, style: Drawi
 }
 
 /**
- * Propose a different design for each new candidate, then queue the
- * drawing of each. A short reply leaves the rest on the current look.
+ * Write a different design into each new candidate, and record which traits
+ * the designs vary. They wait for the user to draw them, unless the request
+ * asked to draw them straight away. A short reply leaves the rest on the
+ * current look.
  */
 const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { characterId, imageIds } = job.payload as { characterId: number; imageIds: number[] };
+	const { characterId, imageIds, draw } = job.payload as {
+		characterId: number;
+		imageIds: number[];
+		draw?: boolean;
+	};
 	const row = db
 		.select({ character: characters, series })
 		.from(characters)
@@ -743,6 +906,11 @@ const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
 		designsReply,
 		signal
 	);
+	const clean = (items: string[]) => items.map((t) => t.trim()).filter(Boolean);
+	db.update(characters)
+		.set({ designTraits: { fixed: clean(reply.fixed), free: clean(reply.free) } })
+		.where(eq(characters.id, characterId))
+		.run();
 	const images = db
 		.select()
 		.from(characterImages)
@@ -751,22 +919,18 @@ const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
 		.all();
 	images.forEach((image, i) => {
 		const design = reply.designs[i];
-		const appearance = positiveOnly(design?.appearance.trim() || row.character.appearance);
-		const outfit = positiveOnly(design?.outfit.trim() || row.character.outfit);
-		const next = enqueue(db, job.userId, 'character.candidate', {
-			characterId,
-			imageId: image.id
-		});
-		db.update(characterImages)
+		const written = db
+			.update(characterImages)
 			.set({
-				prompt: characterPrompt(style, { ...row.character, appearance, outfit }),
 				variant: design?.label.trim() || 'Current look',
-				appearance,
-				outfit,
-				jobId: next.id
+				appearance: positiveOnly(design?.appearance.trim() || row.character.appearance),
+				outfit: positiveOnly(design?.outfit.trim() || row.character.outfit),
+				jobId: null
 			})
 			.where(eq(characterImages.id, image.id))
-			.run();
+			.returning()
+			.get();
+		if (draw) queueCandidate(db, job.userId, written, style, row.character);
 	});
 };
 

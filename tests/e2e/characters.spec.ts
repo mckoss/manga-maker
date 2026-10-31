@@ -30,16 +30,30 @@ test('builds a character and chooses a reference picture', async ({ signedIn: pa
 
 	// The (fake) AI fills in the profile, including a name.
 	await expect(page.getByRole('heading', { name: 'Aiko', level: 1 })).toBeVisible();
-	await expect(page.getByLabel('Appearance')).toHaveValue(/long black hair/);
+	const profile = page.locator('form[action="?/save"]');
+	await expect(profile.getByLabel('Appearance')).toHaveValue(/long black hair/);
 	await expect(page.getByText('AI story editor:')).toBeVisible();
 
-	await page.getByLabel('Outfit and props').fill('a red traveling kimono');
+	// The designs are written with the profile, ready to read and edit.
+	await expect(page.getByText('Not drawn yet')).toHaveCount(4);
+	await profile.getByLabel('Outfit and props').fill('a red traveling kimono');
+	await expect(page.getByText('Unsaved changes')).toBeVisible();
 	await page.getByRole('button', { name: 'Save', exact: true }).click();
-	await expect(page.getByText('Saved.')).toBeVisible();
+	await expect(
+		page.getByText('The look changed, so the AI is writing new design options.')
+	).toBeVisible();
 
-	await page.getByRole('button', { name: 'Draw design options' }).click();
+	// One design, edited and drawn on its own; then the rest.
+	const first = page.getByRole('figure').filter({ hasText: 'close to the profile' });
+	await first.getByLabel('Appearance').fill('a giant of a woman with a shaved head');
+	await first.getByRole('button', { name: 'Draw close to the profile' }).click();
+	await expect(page.getByRole('img', { name: 'Design option 1' })).toBeVisible();
+	await expect(page.getByText('Not drawn yet')).toHaveCount(3);
+	await page.getByRole('button', { name: 'Draw all 3 designs' }).click();
 	const options = page.getByRole('button', { name: 'Use as reference' });
 	await expect(options).toHaveCount(4);
+	await first.getByText('Edit and redraw…').click();
+	await expect(first.getByLabel('Appearance')).toHaveValue('a giant of a woman with a shaved head');
 	await options.nth(1).click();
 	await expect(page.getByText('Reference picture chosen.')).toBeVisible();
 	await expect(page.getByRole('img', { name: 'Aiko reference' })).toBeVisible();
@@ -67,7 +81,7 @@ test('asks for a style sample before drawing', async ({ signedIn: page }) => {
 	await page.getByLabel('Name (optional)').fill('Goro');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Goro', level: 1 })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Draw design options' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: 'Draw the designs' })).toBeDisabled();
 });
 
 test('deletes a character', async ({ signedIn: page }) => {

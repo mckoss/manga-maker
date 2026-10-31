@@ -64,6 +64,13 @@
       "when": 1793478172230,
       "tag": "0008_candidate_designs",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1793482761492,
+      "tag": "0009_design_traits",
+      "breakpoints": true
     }
   ]
 }

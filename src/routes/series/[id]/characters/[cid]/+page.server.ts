@@ -4,10 +4,12 @@ import {
 	CharacterError,
 	chooseReference,
 	deleteCharacter,
+	drawDesign,
 	getCharacter,
 	isSheetView,
 	PROFILE_FIELDS,
 	requestCandidates,
+	requestDesigns,
 	requestDevelop,
 	requestSheet,
 	ROLES,
@@ -48,10 +50,17 @@ export const actions: Actions = {
 		const profile = Object.fromEntries(
 			PROFILE_FIELDS.map((k) => [k, String(form.get(k) ?? '')])
 		) as Profile;
-		return run(
-			() => updateCharacter(getDb(), locals.user!.id, Number(params.cid), profile),
-			'Saved.'
-		);
+		try {
+			const { redesigned } = updateCharacter(getDb(), locals.user!.id, Number(params.cid), profile);
+			return {
+				saved: redesigned
+					? 'Saved. The look changed, so the AI is writing new design options.'
+					: 'Saved.'
+			};
+		} catch (e) {
+			if (e instanceof CharacterError) return fail(400, { saveError: e.message });
+			throw e;
+		}
 	},
 	develop: async ({ request, locals, params }) => {
 		const form = await request.formData();
@@ -64,13 +73,23 @@ export const actions: Actions = {
 			)
 		);
 	},
-	draw: async ({ request, locals, params }) => {
+	draw: async ({ locals, params }) =>
+		run(() => requestCandidates(getDb(), locals.user!.id, Number(params.cid))),
+	designs: async ({ locals, params }) =>
+		run(() => requestDesigns(getDb(), locals.user!.id, Number(params.cid))),
+	drawDesign: async ({ request, locals, params }) => {
 		const form = await request.formData();
-		return run(() =>
-			requestCandidates(getDb(), locals.user!.id, Number(params.cid), {
-				newSeed: form.get('newSeed') === 'on'
-			})
-		);
+		const imageId = Number(form.get('imageId'));
+		try {
+			drawDesign(getDb(), locals.user!.id, Number(params.cid), imageId, {
+				variant: String(form.get('variant') ?? ''),
+				appearance: String(form.get('appearance') ?? ''),
+				outfit: String(form.get('outfit') ?? '')
+			});
+		} catch (e) {
+			if (e instanceof CharacterError) return fail(400, { designError: e.message, imageId });
+			throw e;
+		}
 	},
 	choose: async ({ request, locals, params }) => {
 		const form = await request.formData();

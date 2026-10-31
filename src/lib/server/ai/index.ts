@@ -82,6 +82,11 @@ function fakeDesignsReply() {
 		['wiry, wild hair, goggles', 'wild shoulder-length hair']
 	];
 	return {
+		fixed: ['age: a young woman, from the notes'],
+		free: [
+			'hair: high ponytail / cropped / long braid / wild',
+			'build: slim / stocky / lanky / wiry'
+		],
 		designs: looks.map(([label, hair]) => ({
 			label,
 			appearance: `a young woman with ${hair}`,

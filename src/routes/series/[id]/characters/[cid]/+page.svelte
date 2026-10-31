@@ -19,10 +19,21 @@
 		async ({ update }) =>
 			update({ reset: false });
 
+	/** Where the profile form stands, shown beside its Save button. */
+	let saveState = $state<'saved' | 'dirty' | 'saving'>('saved');
+	const save: SubmitFunction = () => {
+		saveState = 'saving';
+		return async ({ update }) => {
+			await update({ reset: false });
+			saveState = 'saved';
+		};
+	};
+
 	const asset = (hash: string) => resolve('/assets/[hash]', { hash });
 	let id = $derived(String(data.series.id));
 	let c = $derived(data.character);
 	let drawing = $derived(data.candidates.some((i) => i.pending));
+	let undrawnCount = $derived(data.candidates.filter((i) => i.undrawn).length);
 	let anyStale = $derived(data.candidates.some((i) => i.assetHash && (i.stale || i.oldStyle)));
 	let canDraw = $derived(Boolean(data.style && c.appearance && !data.developing));
 	let sheetEmpty = $derived(data.sheet.every((s) => !s.image));
@@ -56,7 +67,13 @@
 
 <div class="layout">
 	<div>
-		<form method="POST" action="?/save" class="card wide" use:enhance={keep}>
+		<form
+			method="POST"
+			action="?/save"
+			class="card wide"
+			use:enhance={save}
+			oninput={() => (saveState = 'dirty')}
+		>
 			<fieldset disabled={data.developing}>
 				<legend>Story</legend>
 				<div class="row">
@@ -112,7 +129,20 @@
 					<textarea name="outfit" rows="2">{c.outfit}</textarea>
 				</label>
 			</fieldset>
-			<button type="submit" disabled={data.developing}>Save</button>
+			<div class="row save-row">
+				<button type="submit" disabled={data.developing || saveState === 'saving'}>Save</button>
+				<span class="save-status" role="status">
+					{#if saveState === 'saving'}
+						Saving…
+					{:else if saveState === 'dirty'}
+						Unsaved changes
+					{:else if form?.saveError}
+						<span class="error">{form.saveError}</span>
+					{:else if form?.saved}
+						<span class="ok">{form.saved}</span>
+					{/if}
+				</span>
+			</div>
 		</form>
 
 		<form method="POST" action="?/develop" class="card wide" use:enhance>
@@ -162,21 +192,52 @@
 		</p>
 	{/if}
 	<p class="hint">
-		Each option is a different take on the character's look. Choosing one makes its appearance and
+		Each option is a different take on the character's look. The AI writes new ones whenever the
+		look above changes. Edit any design's words, then draw it; choosing one makes its appearance and
 		outfit the character's.
 	</p>
+	{#if data.designing}
+		<p class="mentor"><span class="spinner"></span> The AI is writing design options…</p>
+	{:else if c.designTraits?.free.length}
+		<details class="traits">
+			<summary>What the designs vary</summary>
+			<ul>
+				{#each c.designTraits.free as trait, i (i)}<li>{trait}</li>{/each}
+			</ul>
+			{#if c.designTraits.fixed.length}
+				<p class="hint">Kept the same in every design:</p>
+				<ul>
+					{#each c.designTraits.fixed as trait, i (i)}<li>{trait}</li>{/each}
+				</ul>
+			{/if}
+		</details>
+	{/if}
 	{#if anyStale}
 		<p class="hint">Faded pictures were drawn from an older look or style.</p>
 	{/if}
 	{#if data.candidates.length}
-		<div class="samples portrait">
+		<div class="samples portrait designs">
 			{#each data.candidates as img, i (img.id)}
+				{@const label = img.variant || `Design ${i + 1}`}
 				<figure class:stale={img.stale || img.oldStyle}>
 					{#if img.assetHash && img.thumbHash}
 						<a href={asset(img.assetHash)} target="_blank" rel="noopener">
 							<img src={asset(img.thumbHash)} alt="Design option {i + 1}" loading="lazy" />
 						</a>
-						{#if img.variant}<figcaption class="variant">{img.variant}</figcaption>{/if}
+					{:else if img.pending}
+						<div class="placeholder">
+							<span class="spinner"></span>
+							{img.prompt ? 'Drawing…' : 'Designing…'}
+						</div>
+					{:else if img.error}
+						<div class="placeholder error">Failed: {img.error}</div>
+					{:else if img.undrawn}
+						<div class="placeholder">Not drawn yet</div>
+					{:else}
+						<div class="placeholder">Canceled</div>
+					{/if}
+					{#if img.variant}<figcaption class="variant">{img.variant}</figcaption>{/if}
+					{#if img.assetHash}
 						{#if img.id === c.referenceImageId}
 							<p class="chosen"><strong>Reference</strong></p>
 						{:else}
@@ -185,28 +246,62 @@
 								<button type="submit" class="secondary small">Use as reference</button>
 							</form>
 						{/if}
-					{:else if img.error}
-						<div class="placeholder error">Failed: {img.error}</div>
-					{:else if img.pending}
-						<div class="placeholder">
-							<span class="spinner"></span>
-							{img.prompt ? 'Drawing…' : 'Designing…'}
-						</div>
-						{#if img.variant}<figcaption class="variant">{img.variant}</figcaption>{/if}
-					{:else}
-						<div class="placeholder">Canceled</div>
+					{/if}
+					{#if img.appearance !== null && !img.pending}
+						{@const drawn = Boolean(img.assetHash)}
+						<details class="design" open={img.undrawn}>
+							<summary>{drawn ? 'Edit and redraw…' : 'Design'}</summary>
+							<form method="POST" action="?/drawDesign" use:enhance={keep}>
+								<input type="hidden" name="imageId" value={img.id} />
+								<label>
+									Label
+									<input name="variant" value={img.variant ?? ''} />
+								</label>
+								<label>
+									Appearance
+									<textarea name="appearance" rows="5">{img.appearance}</textarea>
+								</label>
+								<label>
+									Outfit and props
+									<textarea name="outfit" rows="3">{img.outfit ?? ''}</textarea>
+								</label>
+								{#if form?.designError && form.imageId === img.id}
+									<p class="error" role="alert">{form.designError}</p>
+								{/if}
+								<button
+									type="submit"
+									class="secondary small"
+									disabled={!data.style}
+									aria-label="{drawn ? 'Redraw' : 'Draw'} {label}"
+									>{drawn ? 'Redraw' : 'Draw'}</button
+								>
+							</form>
+						</details>
 					{/if}
 				</figure>
 			{/each}
 		</div>
 	{/if}
-	<form method="POST" action="?/draw" class="row" use:enhance>
-		<button type="submit" disabled={!canDraw}>
-			{data.candidates.length ? 'Draw options again' : 'Draw design options'}
-		</button>
-		<label class="check"><input type="checkbox" name="newSeed" /> New seeds</label>
+	<div class="row">
+		<form method="POST" action="?/draw" use:enhance>
+			<button type="submit" disabled={!canDraw || data.designing || !undrawnCount}>
+				{undrawnCount > 1
+					? `Draw all ${undrawnCount} designs`
+					: undrawnCount
+						? 'Draw the new design'
+						: 'Draw the designs'}
+			</button>
+		</form>
+		<form method="POST" action="?/designs" use:enhance>
+			<button
+				type="submit"
+				class="secondary"
+				disabled={!c.appearance || data.developing || data.designing}
+				>{data.candidates.length ? 'Write new designs' : 'Write design options'}</button
+			>
+		</form>
 		{#if drawing}<span class="hint">About 5–10 seconds per picture.</span>{/if}
-	</form>
+	</div>
 </section>
 
 <section>
@@ -334,6 +429,35 @@
 		.pictures {
 			position: static;
 		}
+	}
+	.save-row {
+		align-items: center;
+	}
+	.save-status {
+		font-size: 0.9rem;
+		color: var(--muted);
+	}
+	.save-status .ok,
+	.save-status .error {
+		margin: 0;
+	}
+	.design summary,
+	.traits summary {
+		cursor: pointer;
+		font-size: 0.85rem;
+		color: var(--muted);
+	}
+	.design label {
+		font-size: 0.85rem;
+	}
+	.design input,
+	.design textarea {
+		width: 100%;
+		box-sizing: border-box;
+		font-size: 0.85rem;
+	}
+	.designs figure {
+		min-width: 0;
 	}
 	.variant {
 		font-size: 0.8rem;

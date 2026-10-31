@@ -21,9 +21,11 @@ import {
 	chooseReference,
 	createCharacter,
 	deleteCharacter,
+	drawDesign,
 	getCharacter,
 	listCharacters,
 	requestCandidates,
+	requestDesigns,
 	requestDevelop,
 	requestSheet,
 	SHEET_VIEWS,
@@ -92,6 +94,11 @@ async function readyStyle() {
 	await worker.drain();
 }
 
+/** The last request of a kind sent to the text model. */
+function lastSent(system: string) {
+	return text.calls.findLast((c) => c[0].content.includes(system))![1].content;
+}
+
 const brief = { name: '', role: 'protagonist' as const, brief: 'a runaway girl with a staff' };
 
 describe('characters', () => {
@@ -113,7 +120,7 @@ describe('characters', () => {
 		expect(c.outfit).toBe('a dark kimono');
 		expect(c.notes).toBe('Drafted.');
 
-		const sent = text.calls.at(-1)![1].content;
+		const sent = lastSent('story editor');
 		expect(sent).toContain('Series title: Ronin Road');
 		expect(sent).toContain('Logline: A swordsman walks home.');
 		expect(sent).toContain('Setting and look of the series: Edo-period villages');
@@ -136,7 +143,7 @@ describe('characters', () => {
 		updateCharacter(db, owner, id, { ...c, appearance: 'short and round' });
 		requestDevelop(db, owner, id, 'make her older');
 		await worker.drain();
-		const sent = text.calls.at(-1)![1].content;
+		const sent = lastSent('story editor');
 		expect(sent).toContain('- appearance: short and round');
 		expect(sent).toContain("The user's feedback: make her older");
 		expect(() => updateCharacter(db, owner, id, { ...c, name: '' })).toThrow(/name/);
@@ -178,7 +185,7 @@ describe('characters', () => {
 		expect(detail.candidates.some((c) => c.stale)).toBe(false);
 
 		// New candidates replace the others but keep the reference.
-		requestCandidates(db, owner, id, { newSeed: true });
+		requestCandidates(db, owner, id);
 		await worker.drain();
 		detail = getCharacter(db, owner, id);
 		expect(detail.reference?.id).toBe(chosen.id);
@@ -192,21 +199,21 @@ describe('characters', () => {
 		requestCandidates(db, owner, id);
 		await worker.drain();
 		chooseReference(db, owner, id, getCharacter(db, owner, id).candidates[1].id);
-		let c = getCharacter(db, owner, id).character;
-		// A new outfit dates the reference; the other options are alternatives.
-		updateCharacter(db, owner, id, { ...c, outfit: 'red armor' });
-		let detail = getCharacter(db, owner, id);
+		const c = getCharacter(db, owner, id).character;
+		// A new outfit dates the reference, and replaces the other options with
+		// new designs, written but not drawn.
+		updateCharacter(db, owner, id, { ...c, outfit: 'armor' });
+		await worker.drain();
+		const detail = getCharacter(db, owner, id);
 		expect(detail.reference?.stale).toBe(true);
+		expect(detail.candidates).toHaveLength(CANDIDATE_COUNT + 1);
+		expect(detail.candidates.filter((i) => i.undrawn)).toHaveLength(CANDIDATE_COUNT);
 		expect(detail.candidates.filter((i) => i.stale)).toHaveLength(1);
-		// A new age dates them all.
-		c = detail.character;
-		updateCharacter(db, owner, id, { ...c, age: 'an old woman' });
-		detail = getCharacter(db, owner, id);
-		expect(detail.candidates.every((i) => i.stale)).toBe(true);
 
 		requestPrompt(db, owner, styleId, 'more contrast');
 		await worker.drain();
-		expect(getCharacter(db, owner, id).candidates.every((i) => i.oldStyle)).toBe(true);
+		const drawn = getCharacter(db, owner, id).candidates.filter((i) => i.assetHash);
+		expect(drawn.every((i) => i.oldStyle)).toBe(true);
 	});
 
 	it('only accepts a finished picture of the same character as reference', async () => {
@@ -266,6 +273,96 @@ describe('characters', () => {
 		expect(() => chooseReference(db, owner, id, newSide.id)).toThrow(/not ready/);
 	});
 
+	it('writes new designs whenever the look changes, ready to edit before drawing', async () => {
+		const id = createCharacter(db, owner, seriesId, brief);
+		await worker.drain();
+		// Developing the profile wrote the designs, with what they vary.
+		let detail = getCharacter(db, owner, id);
+		expect(detail.candidates).toHaveLength(CANDIDATE_COUNT);
+		expect(detail.candidates.every((c) => c.undrawn && c.appearance && !c.assetHash)).toBe(true);
+		expect(detail.character.designTraits?.free[0]).toMatch(/^hair:/);
+		expect(lastSent('different visual designs')).toContain('- appearance: tall, long black hair');
+		expect(image.calls).toHaveLength(0);
+
+		// Saving the profile unchanged keeps them; a new look rewrites them.
+		const designs = detail.candidates.map((c) => c.id);
+		expect(updateCharacter(db, owner, id, { ...detail.character }).redesigned).toBe(false);
+		expect(getCharacter(db, owner, id).candidates.map((c) => c.id)).toEqual(designs);
+		expect(
+			updateCharacter(db, owner, id, { ...detail.character, appearance: 'short and round' })
+				.redesigned
+		).toBe(true);
+		expect(getCharacter(db, owner, id).designing).toBe(true);
+		await worker.drain();
+		detail = getCharacter(db, owner, id);
+		expect(detail.candidates.map((c) => c.id)).not.toContain(designs[0]);
+		expect(lastSent('different visual designs')).toContain('- appearance: short and round');
+
+		// The user can ask for another set, too; drawing needs a ready style.
+		requestDesigns(db, owner, id);
+		await worker.drain();
+		expect(() => requestCandidates(db, owner, id)).toThrow(/sample picture/);
+	});
+
+	it('draws one design from the user’s words, and redraws it', async () => {
+		await readyStyle();
+		const id = createCharacter(db, owner, seriesId, brief);
+		await worker.drain();
+		const [first, second] = getCharacter(db, owner, id).candidates;
+		const edit = {
+			variant: 'my take',
+			appearance: 'a giant of a woman, shaved head, no scars',
+			outfit: 'a monk’s robe'
+		};
+		const before = image.calls.length;
+		drawDesign(db, owner, id, first.id, edit);
+		expect(() => drawDesign(db, owner, id, first.id, edit)).toThrow(/still being/);
+		await worker.drain();
+		let detail = getCharacter(db, owner, id);
+		let drawn = detail.candidates.find((c) => c.id === first.id)!;
+		expect(drawn).toMatchObject({
+			variant: 'my take',
+			appearance: 'a giant of a woman, shaved head',
+			outfit: 'a monk’s robe',
+			undrawn: false,
+			stale: false
+		});
+		expect(drawn.assetHash).toBeTruthy();
+		expect(image.calls.at(-1)!.prompt).toContain('a giant of a woman, shaved head.');
+		// Only that one was drawn; the others still wait.
+		expect(image.calls).toHaveLength(before + 1);
+		expect(detail.candidates.filter((c) => c.undrawn)).toHaveLength(CANDIDATE_COUNT - 1);
+
+		// Redrawing the same words gives a new picture; new words keep the seed.
+		drawDesign(db, owner, id, first.id, { ...edit, appearance: drawn.appearance! });
+		await worker.drain();
+		const redrawn = getCharacter(db, owner, id).candidates.find((c) => c.id === first.id)!;
+		expect(redrawn.seed).not.toBe(drawn.seed);
+		drawDesign(db, owner, id, second.id, { ...edit, appearance: 'tiny' });
+		await worker.drain();
+		expect(getCharacter(db, owner, id).candidates.find((c) => c.id === second.id)!.seed).toBe(
+			second.seed
+		);
+
+		// Editing the reference adds a new option and leaves the reference as it is.
+		chooseReference(db, owner, id, first.id);
+		drawDesign(db, owner, id, first.id, { ...edit, outfit: 'armor' });
+		await worker.drain();
+		detail = getCharacter(db, owner, id);
+		drawn = detail.candidates.at(-1)!;
+		expect(drawn.id).not.toBe(first.id);
+		expect(drawn.outfit).toBe('armor');
+		expect(detail.reference?.outfit).toBe('a monk’s robe');
+
+		// The rest are drawn together.
+		requestCandidates(db, owner, id);
+		await worker.drain();
+		expect(getCharacter(db, owner, id).candidates.some((c) => c.undrawn)).toBe(false);
+		expect(() => drawDesign(db, owner, id, first.id, { ...edit, appearance: ' ' })).toThrow(
+			/Describe/
+		);
+	});
+
 	it("keeps users out of each other's characters", async () => {
 		const id = createCharacter(db, owner, seriesId, brief);
 		expect(() => createCharacter(db, other, seriesId, brief)).toThrow();
@@ -280,8 +377,10 @@ describe('characters', () => {
 		await worker.drain();
 		requestCandidates(db, owner, id);
 		deleteCharacter(db, owner, id);
-		// The design proposals, before any picture is queued.
-		expect(db.select().from(jobs).where(eq(jobs.status, 'canceled')).all()).toHaveLength(1);
+		// The designs were written with the profile; their pictures are canceled.
+		expect(db.select().from(jobs).where(eq(jobs.status, 'canceled')).all()).toHaveLength(
+			CANDIDATE_COUNT
+		);
 		createCharacter(db, owner, seriesId, brief);
 		deleteSeries(db, owner, seriesId);
 		expect(db.select().from(characterImages).all()).toEqual([]);
@@ -331,7 +430,7 @@ describe('chapter cast', () => {
 
 		// A redesign in the series leaves the chapter on its design, which is kept.
 		chooseReference(db, owner, id, candidates[1].id);
-		requestCandidates(db, owner, id, { newSeed: true });
+		requestCandidates(db, owner, id);
 		await worker.drain();
 		view = chapterCastView(db, owner, seriesId, chapter.id)[0];
 		expect(view).toMatchObject({
