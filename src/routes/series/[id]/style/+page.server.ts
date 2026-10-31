@@ -126,7 +126,15 @@ export const actions: Actions = {
 		if (!isTextKind(kind)) return fail(400, { error: 'Unknown item.' });
 		return run(() => {
 			const { db, styleId } = access(locals, params);
-			saveText(db, locals.user!.id, styleId, kind, str(form, 'key'), str(form, 'text'));
+			saveText(
+				db,
+				locals.user!.id,
+				styleId,
+				kind,
+				str(form, 'key'),
+				str(form, 'text'),
+				form.get('keep') === 'on'
+			);
 		}, 'Saved.');
 	},
 	askQuestions: async ({ locals, params }) =>

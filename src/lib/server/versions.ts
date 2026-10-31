@@ -85,16 +85,34 @@ export interface VersionContent {
 	guidance?: string;
 }
 
-/** Add a finished version (an edit by the user, say) and make it current. */
-export function addVersion(db: Db, item: Item, content: VersionContent): Version {
-	if (item.locked) throw new VersionError('It is kept. Stop keeping it to change it.');
+/**
+ * Add a finished version and make it current. The user may edit a kept item
+ * (keeping only stops the AI regenerating it); `keep` sets whether the item
+ * is kept from now on, as the user's own edits are by default.
+ */
+export function addVersion(
+	db: Db,
+	item: Item,
+	content: VersionContent,
+	opts: { keep?: boolean } = {}
+): Version {
+	if (item.locked && content.origin !== 'user') {
+		throw new VersionError('It is kept. Stop keeping it to change it.');
+	}
+	if (opts.keep) dropPending(db, [item.id]);
 	return db.transaction((tx) => {
 		const version = tx
 			.insert(versions)
 			.values({ itemId: item.id, status: 'ready', ...content, createdAt: new Date() })
 			.returning()
 			.get();
-		tx.update(items).set({ currentVersionId: version.id }).where(eq(items.id, item.id)).run();
+		tx.update(items)
+			.set({
+				currentVersionId: version.id,
+				...(opts.keep !== undefined ? { locked: opts.keep } : {})
+			})
+			.where(eq(items.id, item.id))
+			.run();
 		return version;
 	});
 }
@@ -220,7 +238,7 @@ function accessVersion(db: Db, access: Access, versionId: number) {
 	return { version, item: accessItem(db, access, version.itemId) };
 }
 
-/** Go back to an older version (or forward to a newer one), optionally locking it in. */
+/** Go back to an older version (or forward to a newer one), optionally keeping it. */
 export function useVersion(
 	db: Db,
 	access: Access,
@@ -228,11 +246,11 @@ export function useVersion(
 	opts: { lock?: boolean } = {}
 ): Item {
 	const { item } = accessVersion(db, access, versionId);
-	if (item.locked) throw new VersionError('It is kept. Stop keeping it to change it.');
+	// The user may go back on a kept item: keeping only stops the AI.
 	if (opts.lock) dropPending(db, [item.id]);
 	return db
 		.update(items)
-		.set({ currentVersionId: versionId, locked: opts.lock ?? false })
+		.set({ currentVersionId: versionId, locked: opts.lock || item.locked })
 		.where(eq(items.id, item.id))
 		.returning()
 		.get();

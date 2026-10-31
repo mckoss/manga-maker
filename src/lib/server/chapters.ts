@@ -1,6 +1,7 @@
 import { and, asc, eq, gt, inArray, sql } from 'drizzle-orm';
 import type { Db } from './db';
-import { chapterCast, chapters, characterImages, characters, type Chapter } from './db/schema';
+import { chapterCast, chapters, characters, versions, type Chapter } from './db/schema';
+import { references } from './characters';
 import { ownedSeries, touchSeries } from './series';
 
 export class ChapterError extends Error {}
@@ -129,38 +130,37 @@ export function chapterCastView(db: Db, ownerId: number, seriesId: number, chapt
 			.all()
 			.map((m) => [m.characterId, m])
 	);
-	const imageIds = [
-		...all.map((c) => c.referenceImageId),
-		...[...members.values()].map((m) => m.pinnedImageId)
-	].filter((id): id is number => id !== null);
-	const thumbs = new Map(
-		imageIds.length
+	const refs = references(
+		db,
+		all.map((c) => c.id)
+	);
+	const pinnedIds = [...members.values()]
+		.map((m) => m.pinnedVersionId)
+		.filter((id): id is number => id !== null);
+	const pinned = new Map(
+		pinnedIds.length
 			? db
-					.select({ id: characterImages.id, thumb: characterImages.thumbHash })
-					.from(characterImages)
-					.where(inArray(characterImages.id, imageIds))
+					.select({ id: versions.id, thumb: versions.thumbHash })
+					.from(versions)
+					.where(inArray(versions.id, pinnedIds))
 					.all()
-					.map((i) => [i.id, i.thumb])
+					.map((v) => [v.id, v.thumb])
 			: []
 	);
-	const thumb = (id: number | null) => (id !== null ? (thumbs.get(id) ?? null) : null);
 	return all.map((c) => {
 		const member = members.get(c.id);
+		const ref = refs.get(c.id);
+		const pin = member?.pinnedVersionId ?? null;
 		return {
 			id: c.id,
 			name: c.name,
 			role: c.role,
 			inCast: member !== undefined,
 			/** The design this chapter draws the character from. */
-			pinnedThumb: member ? thumb(member.pinnedImageId) : null,
+			pinnedThumb: pin !== null ? (pinned.get(pin) ?? null) : null,
 			/** The series' current design, when it differs from the pinned one. */
-			newerThumb:
-				member?.pinnedImageId != null &&
-				c.referenceImageId !== null &&
-				c.referenceImageId !== member.pinnedImageId
-					? thumb(c.referenceImageId)
-					: null,
-			currentThumb: thumb(c.referenceImageId)
+			newerThumb: pin !== null && ref && ref.id !== pin ? ref.thumbHash : null,
+			currentThumb: ref?.thumbHash ?? null
 		};
 	});
 }
@@ -184,12 +184,12 @@ export function addToCast(
 	characterId: number
 ): void {
 	ownedChapter(db, ownerId, seriesId, chapterId);
-	const character = seriesCharacter(db, seriesId, characterId);
+	seriesCharacter(db, seriesId, characterId);
 	db.insert(chapterCast)
 		.values({
 			chapterId,
 			characterId,
-			pinnedImageId: character.referenceImageId,
+			pinnedVersionId: references(db, [characterId]).get(characterId)?.id ?? null,
 			createdAt: new Date()
 		})
 		.onConflictDoNothing()
@@ -219,9 +219,9 @@ export function useNewestDesign(
 	characterId: number
 ): void {
 	ownedChapter(db, ownerId, seriesId, chapterId);
-	const character = seriesCharacter(db, seriesId, characterId);
+	seriesCharacter(db, seriesId, characterId);
 	db.update(chapterCast)
-		.set({ pinnedImageId: character.referenceImageId })
+		.set({ pinnedVersionId: references(db, [characterId]).get(characterId)?.id ?? null })
 		.where(and(eq(chapterCast.chapterId, chapterId), eq(chapterCast.characterId, characterId)))
 		.run();
 }

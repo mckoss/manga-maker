@@ -119,10 +119,31 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [x] Save on the character page says it saved (or that there are unsaved
       changes) next to the button
 
-## Next
+## Milestone 2h: the character pipeline (v0.13.0)
 
-- [ ] Characters on the versioned items layer: every profile generation kept
-      (v0.13)
+- [x] Every text field and picture of a character is a versioned item
+      ("Version n of m", browse back, use, keep, delete): notes, role, name,
+      each profile field, each design, each design picture, the reference
+      and each sheet view
+- [x] Each records what it was made from: notes and role → profile →
+      designs → design pictures → reference (chosen) → sheet. A change marks
+      what was made from it "Out of date" and what follows "Earlier step
+      changed"; nothing regenerates until asked
+- [x] Regenerate one item, a stage ("Rewrite out-of-date fields", "Write
+      out-of-date designs", "Draw out-of-date pictures", "Redraw
+      out-of-date views"), or "Update everything not kept", which cascades
+      step by step; kept items are skipped
+- [x] The user's own edits are kept by default (untick to let the AI
+      rewrite them), here and on the style page; keeping stops only the AI
+- [x] A flow diagram at the top of the character page shows each step's
+      state
+- [x] Choosing a design no longer copies it into the profile: the
+      reference is its own item, out of date when the profile changes
+- [x] Animals and creatures: the prompts say what the character is, and
+      never dress an animal unless the notes say so
+- [x] Existing characters imported (migration 0010)
+
+## Next
 
 - [ ] Locations (milestone 3)
 - [ ] AI critique of samples with a vision model (Gemma 4)

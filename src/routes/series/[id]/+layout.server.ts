@@ -15,7 +15,7 @@ export const load: LayoutServerLoad = ({ params, locals }) => {
 			series,
 			chapters: listChapters(db, ownerId, series.id),
 			castSize: cast.length,
-			castReady: cast.filter((c) => c.referenceImageId).length
+			castReady: cast.filter((c) => c.hasReference).length
 		};
 	} catch (e) {
 		if (e instanceof SeriesError) error(404, e.message);

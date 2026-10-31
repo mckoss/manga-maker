@@ -19,6 +19,7 @@ import {
 	currentVersions,
 	deleteScope,
 	describeScope,
+	dropPending,
 	ensureItem,
 	finishVersion,
 	itemsIn,
@@ -522,14 +523,19 @@ export function isTextKind(value: string): value is TextKind {
 	return ['description', 'avoid', 'prompt', 'scene'].includes(value);
 }
 
-/** Save the user's own wording of a piece of text as a new version, if it changed. */
+/**
+ * Save the user's own wording of a piece of text as a new version, if it
+ * changed. What the AI writes (the prompt, a scene) is kept from then on
+ * unless `keep` is false, so the user's edit isn't regenerated away.
+ */
 export function saveText(
 	db: Db,
 	ownerId: number,
 	styleId: number,
 	kind: TextKind,
 	key: string,
-	text: string
+	text: string,
+	keep = true
 ): void {
 	const style = ownedStyle(db, ownerId, styleId);
 	if (kind === 'scene' && !isSubject(key)) throw new StyleError('Unknown scene.');
@@ -537,13 +543,20 @@ export function saveText(
 	const value = text.trim();
 	if (!value && kind !== 'avoid') throw new StyleError('It cannot be empty.');
 	const state = stateOf(db, style);
-	if (value === (state.current.get(slotKey(slot))?.text ?? '')) return;
-	run(() =>
-		addVersion(db, ensureItem(db, ownerId, styleScope(styleId), slot.kind, slot.key), {
-			origin: 'user',
-			text: value,
-			inputs: inputsFor(state, slot) ?? {}
-		})
+	const item = ensureItem(db, ownerId, styleScope(styleId), slot.kind, slot.key);
+	const generated = kind === 'prompt' || kind === 'scene';
+	if (value === (state.current.get(slotKey(slot))?.text ?? '')) {
+		if (generated && item.currentVersionId !== null && item.locked !== keep) {
+			db.update(itemsTable).set({ locked: keep }).where(eq(itemsTable.id, item.id)).run();
+			if (keep) dropPending(db, [item.id]);
+		}
+		return;
+	}
+	addVersion(
+		db,
+		item,
+		{ origin: 'user', text: value, inputs: inputsFor(state, slot) ?? {} },
+		generated ? { keep } : {}
 	);
 	if (kind === 'description') requestQuestions(db, ownerId, styleId);
 }

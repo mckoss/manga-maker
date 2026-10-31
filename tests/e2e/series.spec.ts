@@ -104,8 +104,8 @@ test('adds chapters, picks their casts, and keeps each on its design', async ({
 	await page.getByLabel('Describe them').fill('a runaway girl with a staff');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Aiko', level: 1 })).toBeVisible();
-	await page.getByRole('button', { name: 'Draw all 4 designs' }).click();
-	const options = page.getByRole('button', { name: 'Use as reference' });
+	await page.getByRole('button', { name: 'Update everything not kept' }).click();
+	const options = page.getByRole('button', { name: /^Use design \d as reference$/ });
 	await expect(options).toHaveCount(4);
 	await options.nth(0).click();
 	await expect(page.getByText('Reference picture chosen.')).toBeVisible();
@@ -121,7 +121,10 @@ test('adds chapters, picks their casts, and keeps each on its design', async ({
 
 	// A redesign shows as newer in both chapters until each moves to it.
 	await page.getByRole('link', { name: 'Aiko' }).click();
-	await page.getByRole('button', { name: 'Use as reference' }).first().click();
+	await page
+		.getByRole('button', { name: /^Use design \d as reference$/ })
+		.first()
+		.click();
 	await expect(page.getByText('Reference picture chosen.')).toBeVisible();
 	await steps.getByRole('link', { name: 'Chapter 1' }).click();
 	await steps.getByRole('link', { name: 'Cast' }).click();
