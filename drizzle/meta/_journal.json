@@ -15,6 +15,13 @@
       "when": 1793403701175,
       "tag": "0001_styles",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793425829468,
+      "tag": "0002_sample_scenes",
+      "breakpoints": true
     }
   ]
 }

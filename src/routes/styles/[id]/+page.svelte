@@ -140,9 +140,31 @@
 				<textarea name="prompt" rows="4" disabled={data.refining}>{draft.prompt}</textarea>
 			</label>
 			<label>
-				Avoid (negative prompt; Qwen-Image only)
-				<input name="negativePrompt" value={draft.negativePrompt} disabled={data.refining} />
+				Keep out of every image
+				<input
+					name="avoid"
+					value={draft.avoid}
+					disabled={data.refining}
+					placeholder="modern clothing, electric wires, cars"
+				/>
+				<span class="hint"
+					>The image models can't take a "don't draw" list, so the AI rewrites the prompt and scenes
+					to describe what is there instead. Ask it to revise after changing this.</span
+				>
 			</label>
+			<fieldset>
+				<legend>Sample scenes</legend>
+				<p class="hint">
+					What each test image shows. The AI writes these to fit your style's setting; edit them
+					freely.
+				</p>
+				{#each data.draftScenes as scene (scene.key)}
+					<label>
+						{scene.label}
+						<input name="scene_{scene.key}" value={scene.scene} disabled={data.refining} />
+					</label>
+				{/each}
+			</fieldset>
 			<button type="submit" disabled={data.refining}>Save draft</button>
 		</form>
 

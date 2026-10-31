@@ -34,47 +34,49 @@ export const COLOR_MODES: Record<ColorMode, { label: string; phrase: string }> =
 };
 
 /**
- * Added to the negative prompt for location shots. Genre words in a style
- * ("detective", "realistic human proportions") otherwise put people in them.
- */
-const EMPTY_SCENE = 'people, person, human figure';
-
-/**
- * The fixed test subjects every style is rendered with. Covering figures,
+ * The kinds of test image every style is rendered with. Covering figures,
  * faces, places and motion shows how a style handles each kind of panel.
+ * The AI writes the actual scene for each to suit the style's setting and era
+ * (a fixed modern street would fight an Edo-period style); `prompt` is the
+ * fallback until it has. Location scenes say "empty" and "No people": genre
+ * words in a style otherwise put people in them.
  */
 export const SAMPLE_SUBJECTS = [
 	{
 		key: 'figure',
 		label: 'Figure',
-		prompt:
-			'Full-body view of a teenage girl in a school uniform standing in a neutral pose, plain white background.'
+		role: 'one character, full body, standing in a neutral pose, on a plain white background',
+		prompt: 'Full-body view of a young woman standing in a neutral pose, plain white background.'
 	},
 	{
 		key: 'face',
 		label: 'Face',
+		role: "a close-up of one character's face showing a clear emotion",
 		prompt: "Close-up of a young man's face, determined expression, wind in his hair."
 	},
 	{
 		key: 'interior',
 		label: 'Interior',
-		prompt:
-			'The empty interior of a small ramen shop at night, counter seats, steam, hanging lanterns. No people.',
-		avoid: EMPTY_SCENE
+		role: 'an empty indoor room typical of the setting',
+		empty: true,
+		prompt: 'The empty interior of a small shop at night, lamplight and shelves. No people.'
 	},
 	{
 		key: 'exterior',
 		label: 'Exterior',
-		prompt:
-			'An empty, quiet suburban street with power lines and a convenience store at dusk. No people.',
-		avoid: EMPTY_SCENE
+		role: 'an empty outdoor street or landscape typical of the setting',
+		empty: true,
+		prompt: 'An empty, quiet street at dusk, buildings on both sides. No people.'
 	},
 	{
 		key: 'action',
 		label: 'Action',
-		prompt: 'A boy leaping over a fence mid-air, dynamic speed lines, dramatic low angle.'
+		role: 'one character in a dynamic action pose, with a sense of motion',
+		prompt: 'A young man leaping over a wall mid-air, dynamic speed lines, dramatic low angle.'
 	}
-] satisfies { key: string; label: string; prompt: string; avoid?: string }[];
+] satisfies { key: string; label: string; role: string; prompt: string; empty?: true }[];
+
+export type SubjectKey = (typeof SAMPLE_SUBJECTS)[number]['key'];
 
 export const SAMPLE_SIZE = 1024;
 
@@ -102,11 +104,48 @@ export function compilePrompt(
 		.join(' ');
 }
 
-/** The negative prompt for one subject: the style's, plus the subject's own. */
-export function compileNegative(negativePrompt: string, subjectKey: string): string {
+const NEGATION = /^(no|not|non|without|avoid|never|absence of|free of)\b/i;
+
+/**
+ * Drop the "no X" clauses from text the AI wrote. The image models handle
+ * negation badly ("no power lines" draws power lines), and the local models
+ * write such clauses even when told not to.
+ */
+export function positiveOnly(text: string): string {
+	return text
+		.split(/(?<=[.!?])\s+/)
+		.map((sentence) => {
+			const end = /[.!?]$/.test(sentence) ? sentence.slice(-1) : '';
+			const body = end ? sentence.slice(0, -1) : sentence;
+			const kept = body
+				.split(/\s*[,;]\s*/)
+				.map((clause) => clause.replace(/^(and|or)\s+/i, ''))
+				.filter((clause) => clause && !NEGATION.test(clause));
+			return kept.length ? kept.join(', ') + end : '';
+		})
+		.filter(Boolean)
+		.join(' ');
+}
+
+/** An AI-written scene, cleaned up; location scenes always end "No people." */
+function cleanAiScene(subjectKey: string, scene: string): string {
 	const subject = SAMPLE_SUBJECTS.find((s) => s.key === subjectKey);
-	const avoid = subject && 'avoid' in subject ? subject.avoid : '';
-	return [negativePrompt.trim(), avoid].filter(Boolean).join(', ');
+	const text = sentence(positiveOnly(scene));
+	return text && subject && 'empty' in subject ? `${text} No people.` : text;
+}
+
+/** The scene a version's sample of one subject shows: the AI's, or the fallback. */
+export function sceneFor(version: Pick<StyleVersion, 'scenes'>, subjectKey: string): string {
+	const subject = SAMPLE_SUBJECTS.find((s) => s.key === subjectKey);
+	return version.scenes[subjectKey]?.trim() || (subject?.prompt ?? '');
+}
+
+/** The full image prompt for one of a version's samples. */
+export function samplePrompt(
+	version: Pick<StyleVersion, 'colorMode' | 'prompt' | 'scenes'>,
+	subjectKey: string
+): string {
+	return compilePrompt(version, sceneFor(version, subjectKey));
 }
 
 // ---------------------------------------------------------------------------
@@ -251,7 +290,7 @@ export function readyToApprove(version: StyleVersion, samples: StyleSample[]): b
 		mine.length === SAMPLE_SUBJECTS.length &&
 		SAMPLE_SUBJECTS.every((subject) => {
 			const sample = mine.find((s) => s.subject === subject.key);
-			return sample?.assetHash && sample.prompt === compilePrompt(version, subject.prompt);
+			return sample?.assetHash && sample.prompt === samplePrompt(version, subject.key);
 		})
 	);
 }
@@ -321,8 +360,16 @@ export interface DraftInput {
 	description: string;
 	colorMode: ColorMode;
 	prompt: string;
-	negativePrompt: string;
+	avoid: string;
+	scenes: Record<string, string>;
 	model: ImageModelId;
+}
+
+/** Keep only known subjects with non-empty scenes. */
+function cleanScenes(scenes: Record<string, string | undefined>): Record<string, string> {
+	return Object.fromEntries(
+		SAMPLE_SUBJECTS.map((s) => [s.key, scenes[s.key]?.trim() ?? ''] as const).filter(([, v]) => v)
+	);
 }
 
 export function updateDraft(db: Db, ownerId: number, versionId: number, input: DraftInput): void {
@@ -332,7 +379,8 @@ export function updateDraft(db: Db, ownerId: number, versionId: number, input: D
 			description: input.description.trim(),
 			colorMode: input.colorMode,
 			prompt: input.prompt.trim(),
-			negativePrompt: input.negativePrompt.trim(),
+			avoid: input.avoid.trim(),
+			scenes: cleanScenes(input.scenes),
 			model: input.model
 		})
 		.where(eq(styleVersions.id, versionId))
@@ -374,7 +422,7 @@ export function requestSamples(
 			.values({
 				versionId,
 				subject: subject.key,
-				prompt: compilePrompt(version, subject.prompt),
+				prompt: samplePrompt(version, subject.key),
 				seed: version.seed + i,
 				createdAt: new Date()
 			})
@@ -445,7 +493,8 @@ export function startRevision(
 			description: source.description,
 			colorMode: source.colorMode,
 			prompt: source.prompt,
-			negativePrompt: source.negativePrompt,
+			avoid: source.avoid,
+			scenes: source.scenes,
 			model: source.model,
 			seed: source.seed,
 			notes: '',
@@ -474,16 +523,24 @@ export function discardDraft(db: Db, ownerId: number, versionId: number): void {
 
 const REFINE_SYSTEM = `You are an experienced manga art director helping someone who may be new to comics define a drawing style for an AI image model.
 
-Write the style as a prompt fragment that will be combined with many different subjects (characters, places, action scenes), so describe ONLY how things are drawn: medium, line work, inking, shading, tones and textures, level of detail, proportions, rendering, genre conventions and mood. Never describe a particular subject, character, setting or action. Write 25 to 70 words as comma-separated phrases or short sentences. Stay consistent with the color mode, which is added to the prompt separately.
+You write two things.
+
+1. The style prompt: a fragment that will be combined with many different subjects (characters, places, action scenes), so it describes ONLY how things are drawn: medium, line work, inking, shading, tones and textures, level of detail, proportions, rendering, genre conventions and mood. Never describe a particular subject, character, setting or action. Write 25 to 70 words as comma-separated phrases or short sentences. Stay consistent with the color mode, which is added to the prompt separately.
+
+2. Five sample scenes, used to test the style. Each is one sentence of 12 to 35 words describing what the picture shows, and each must fit the setting, era, place and genre the user's description implies: clothing, architecture, objects and technology must all belong to that world. For a story set in historical Japan, for example, show kimono and wooden buildings, never school uniforms, power lines or cars. The scenes are:
+${SAMPLE_SUBJECTS.map((s) => `- "${s.key}": ${s.role}`).join('\n')}
+The "interior" and "exterior" scenes must start with "An empty" or "The empty"; "No people." is added to them automatically.
+
+Never write "no", "not", "without" or "avoid" in the prompt or the scenes. The image model ignores negative prompts and reads negation as a request: "no power lines" draws power lines. To keep something out, describe what is there instead: "a dirt road under an open sky, lined with wooden houses" rather than "no asphalt, no power lines". The user may list things to keep out of every image; honor them this way in both the style prompt and the scenes, by naming period-appropriate things to show in their place.
 
 Reply with only a JSON object with these keys:
 - "prompt": the style fragment.
-- "negativePrompt": a short comma-separated list of things the image model should avoid (for example photorealism or unwanted color), or "".
+- "scenes": an object with the keys ${SAMPLE_SUBJECTS.map((s) => `"${s.key}"`).join(', ')}, each a scene sentence.
 - "notes": two to four plain-language sentences to the user explaining what you wrote or changed and why, and what to look for in the sample images.`;
 
 const refineReply = z.object({
 	prompt: z.string().min(1),
-	negativePrompt: z.string().default(''),
+	scenes: z.record(z.string(), z.string()).default({}),
 	notes: z.string().default('')
 });
 
@@ -492,16 +549,20 @@ export function refineMessages(version: StyleVersion, feedback: string) {
 		`Description of the look the user wants: ${version.description}`,
 		`Color mode: ${COLOR_MODES[version.colorMode].label}`
 	];
+	if (version.avoid) lines.push(`Keep out of every image: ${version.avoid}`);
 	if (version.prompt) {
 		lines.push(`Current style prompt: ${version.prompt}`);
-		if (version.negativePrompt) lines.push(`Current negative prompt: ${version.negativePrompt}`);
+		lines.push(
+			'Current sample scenes (keep any that already fit, unless the feedback asks for a change):',
+			...SAMPLE_SUBJECTS.map((s) => `- ${s.key}: ${sceneFor(version, s.key)}`)
+		);
 	}
 	lines.push(
 		feedback
 			? `The user's feedback on the current samples: ${feedback}`
 			: version.prompt
-				? 'Improve the current prompt so it matches the description more closely.'
-				: 'Write the first version of the style prompt.'
+				? 'Improve the current prompt and scenes so they match the description more closely.'
+				: 'Write the first version of the style prompt and the sample scenes.'
 	);
 	return [
 		{ role: 'system' as const, content: REFINE_SYSTEM },
@@ -516,8 +577,15 @@ const refineHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const reply = await ai.text.json(refineMessages(version, feedback), refineReply, signal);
 	db.update(styleVersions)
 		.set({
-			prompt: reply.prompt.trim(),
-			negativePrompt: reply.negativePrompt.trim(),
+			prompt: positiveOnly(reply.prompt.trim()),
+			scenes: {
+				...version.scenes,
+				...cleanScenes(
+					Object.fromEntries(
+						Object.entries(reply.scenes).map(([key, scene]) => [key, cleanAiScene(key, scene)])
+					)
+				)
+			},
 			notes: reply.notes.trim()
 		})
 		.where(and(eq(styleVersions.id, versionId), eq(styleVersions.status, 'draft')))
@@ -539,9 +607,6 @@ const sampleHandler: JobHandler = async (job, { db, ai, signal }) => {
 		{
 			model,
 			prompt: sample.prompt,
-			negativePrompt: IMAGE_MODELS[model].negativePrompt
-				? compileNegative(version.negativePrompt, sample.subject)
-				: undefined,
 			seed: sample.seed,
 			width: SAMPLE_SIZE,
 			height: SAMPLE_SIZE

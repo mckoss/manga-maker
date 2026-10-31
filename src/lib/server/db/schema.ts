@@ -74,7 +74,13 @@ export const styleVersions = sqliteTable('style_versions', {
 	colorMode: text('color_mode').$type<ColorMode>().notNull(),
 	/** Style fragment prepended to every image prompt (subject excluded). */
 	prompt: text('prompt').notNull(),
-	negativePrompt: text('negative_prompt').notNull().default(''),
+	/**
+	 * Things the user wants kept out of every image. The image models ignore
+	 * negative prompts, so the AI works these into the prompt and scenes.
+	 */
+	avoid: text('negative_prompt').notNull().default(''),
+	/** Sample scene per subject key, written by the AI to suit the style's setting. */
+	scenes: text('scenes', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
 	model: text('model').notNull(),
 	/** Sample seeds derive from this, so versions can be compared like for like. */
 	seed: integer('seed').notNull(),

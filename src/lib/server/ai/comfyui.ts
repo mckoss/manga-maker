@@ -18,9 +18,6 @@ function loadWorkflow(model: ImageModelId): Workflow {
 export function buildWorkflow(req: ImageRequest): Workflow {
 	const wf = loadWorkflow(req.model);
 	wf.positive.inputs.text = req.prompt;
-	if (wf.negative.class_type === 'CLIPTextEncode') {
-		wf.negative.inputs.text = req.negativePrompt ?? '';
-	}
 	wf.latent.inputs.width = req.width;
 	wf.latent.inputs.height = req.height;
 	wf.sampler.inputs.seed = req.seed;

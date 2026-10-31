@@ -1,0 +1,1 @@
+ALTER TABLE `style_versions` ADD `scenes` text DEFAULT '{}' NOT NULL;

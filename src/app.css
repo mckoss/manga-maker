@@ -361,3 +361,16 @@ summary {
 	font-size: 0.85rem;
 	font-weight: 600;
 }
+
+fieldset {
+	display: flex;
+	flex-direction: column;
+	gap: 0.6rem;
+	margin: 0;
+	padding: 0.75rem 1rem 1rem;
+	border: 1px solid var(--line);
+	border-radius: 6px;
+}
+fieldset .hint {
+	margin: 0;
+}

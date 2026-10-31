@@ -43,10 +43,9 @@
 		}
 	},
 	"negative": {
-		"class_type": "CLIPTextEncode",
+		"class_type": "ConditioningZeroOut",
 		"inputs": {
-			"clip": ["clip", 0],
-			"text": ""
+			"conditioning": ["positive", 0]
 		}
 	},
 	"latent": {

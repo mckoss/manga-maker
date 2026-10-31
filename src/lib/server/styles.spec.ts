@@ -10,7 +10,6 @@ import { Worker } from './jobs';
 import { createUser } from './auth/users';
 import {
 	approveDraft,
-	compileNegative,
 	compilePrompt,
 	createStyle,
 	deleteStyle,
@@ -19,7 +18,11 @@ import {
 	listStyles,
 	requestRefine,
 	requestSamples,
+	refineMessages,
 	SAMPLE_SUBJECTS,
+	positiveOnly,
+	samplePrompt,
+	sceneFor,
 	startRevision,
 	StyleError,
 	styleJobHandlers,
@@ -48,7 +51,7 @@ beforeEach(async () => {
 	replies = 0;
 	text = new FakeTextModel(() => ({
 		prompt: `heavy ink, deep blacks v${++replies}`,
-		negativePrompt: 'color',
+		scenes: { exterior: `An empty rice-field road at dusk v${replies}, no cars`, bogus: 'x' },
 		notes: 'Made it darker.'
 	}));
 	worker = new Worker(db, { image, text }, styleJobHandlers);
@@ -71,7 +74,8 @@ describe('style workflow', () => {
 		detail = getStyle(db, owner, id);
 		expect(detail.samples).toHaveLength(SAMPLE_SUBJECTS.length);
 		expect(detail.samples.every((s) => s.assetHash && s.thumbHash)).toBe(true);
-		expect(image.calls[0].prompt).toBe(compilePrompt(detail.draft!, SAMPLE_SUBJECTS[0].prompt));
+		expect(image.calls[0].prompt).toBe(samplePrompt(detail.draft!, 'figure'));
+		expect(image.calls.find((c) => c.prompt.includes('rice-field'))).toBeTruthy();
 		expect(image.calls[0].prompt).toMatch(/^Black and white/);
 
 		approveDraft(db, owner, detail.draft!.id);
@@ -89,7 +93,14 @@ describe('style workflow', () => {
 
 		requestSamples(db, owner, draft.id);
 		await worker.drain();
-		updateDraft(db, owner, draft.id, { ...input, prompt: 'changed', negativePrompt: '' });
+		const edit = { ...input, prompt: draft.prompt, avoid: '', scenes: draft.scenes };
+		updateDraft(db, owner, draft.id, { ...edit, prompt: 'changed' });
+		expect(() => approveDraft(db, owner, draft.id)).toThrow(/samples/);
+
+		// Editing a scene also makes the samples out of date.
+		requestSamples(db, owner, draft.id);
+		await worker.drain();
+		updateDraft(db, owner, draft.id, { ...edit, prompt: 'changed', scenes: { face: 'A cat.' } });
 		expect(() => approveDraft(db, owner, draft.id)).toThrow(/samples/);
 	});
 
@@ -121,6 +132,50 @@ describe('style workflow', () => {
 			[2, 'approved'],
 			[1, 'superseded']
 		]);
+	});
+
+	it('stores the scenes the AI writes and passes on what to keep out', async () => {
+		const id = createStyle(db, owner, input);
+		await worker.drain();
+		let draft = getStyle(db, owner, id).draft!;
+		expect(draft.scenes).toEqual({ exterior: 'An empty rice-field road at dusk v1. No people.' });
+
+		updateDraft(db, owner, draft.id, {
+			...input,
+			prompt: draft.prompt,
+			avoid: 'electric wires',
+			scenes: { ...draft.scenes, face: 'A ronin glaring.' }
+		});
+		requestRefine(db, owner, draft.id, '');
+		await worker.drain();
+		const sent = text.calls.at(-1)![1].content;
+		expect(sent).toContain('Keep out of every image: electric wires');
+		expect(sent).toContain('- face: A ronin glaring.');
+
+		// The reply's exterior replaces the old one; the user's face scene stays.
+		draft = getStyle(db, owner, id).draft!;
+		expect(draft.scenes).toEqual({
+			exterior: 'An empty rice-field road at dusk v2. No people.',
+			face: 'A ronin glaring.'
+		});
+
+		const v1 = draft;
+		requestSamples(db, owner, v1.id);
+		await worker.drain();
+		approveDraft(db, owner, v1.id);
+		const v2 = getStyle(db, owner, id);
+		startRevision(db, owner, id);
+		expect(getStyle(db, owner, id).draft?.scenes).toEqual(v2.active!.scenes);
+		expect(getStyle(db, owner, id).draft?.avoid).toBe('electric wires');
+	});
+
+	it('asks the AI for scenes that fit the setting', () => {
+		const [system] = refineMessages(
+			{ description: 'Edo period', colorMode: 'bw', prompt: '', avoid: '', scenes: {} } as never,
+			''
+		);
+		for (const s of SAMPLE_SUBJECTS) expect(system.content).toContain(`"${s.key}"`);
+		expect(system.content).toMatch(/ignores negative prompts/);
 	});
 
 	it('discarding a revision keeps the active version', async () => {
@@ -188,9 +243,26 @@ describe('prompt compilation', () => {
 		);
 	});
 
-	it('keeps people out of location shots', () => {
-		expect(compileNegative('color', 'exterior')).toBe('color, people, person, human figure');
-		expect(compileNegative('', 'interior')).toBe('people, person, human figure');
-		expect(compileNegative('color', 'face')).toBe('color');
+	it("uses the AI's scene for a subject, falling back to the default", () => {
+		const version = { colorMode: 'bw' as const, prompt: 'ink', scenes: { face: 'A samurai.' } };
+		expect(sceneFor(version, 'face')).toBe('A samurai.');
+		expect(sceneFor(version, 'figure')).toBe(SAMPLE_SUBJECTS[0].prompt);
+		expect(samplePrompt(version, 'face')).toMatch(/ink\. A samurai\.$/);
+	});
+
+	it('strips negated clauses from AI text', () => {
+		expect(positiveOnly('bold ink, no modern elements, hatching, without color.')).toBe(
+			'bold ink, hatching.'
+		);
+		expect(
+			positiveOnly('A dirt path lined with houses, no people, and no power lines. Not modern.')
+		).toBe('A dirt path lined with houses.');
+		expect(positiveOnly('Nostalgic notes, nobody home')).toBe('Nostalgic notes, nobody home');
+	});
+
+	it('keeps default location scenes empty of people', () => {
+		for (const key of ['interior', 'exterior']) {
+			expect(sceneFor({ scenes: {} }, key)).toMatch(/empty.*No people\.$/i);
+		}
 	});
 });
