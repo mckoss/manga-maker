@@ -26,11 +26,15 @@ short manga-style comics with AI running entirely on local hardware.
 
 ## The phases
 
-Styles, characters and scenes (locations) form a reusable **library** owned
-by the user. Once approved, each one carries canonical reference images that
-every later generation draws on.
+The top level is the user's collection of **manga**, each shown with its
+title and a cover thumbnail (the style's figure sample until there is a real
+cover). Opening a manga shows a sidebar of its steps: **Style, Characters,
+Locations, Plot, Script, Panels, Pages**. The style, characters and locations
+belong to that manga; to reuse one in another manga the user copies it, so
+changing it in one comic never silently changes another. Once approved, each
+carries canonical reference images that every later generation draws on.
 
-Each project picks a style, then moves through four creative phases. Each phase produces structured data
+Each manga starts with a style, then moves through the creative phases. Each phase produces structured data
 (not just prose), and later phases build on it. Every phase has a **mentor**:
 the LLM explains the phase, asks the user questions, drafts suggestions, and
 runs a checklist review before the user advances.
@@ -52,7 +56,7 @@ before any character is drawn so every reference sheet is made in it.
 - **Reading direction** (right-to-left or left-to-right) is a per-project
   setting next to the style; it drives page layout, panel order and bubble
   order, not image generation.
-- Styles live in the library, so a user can reuse a look across comics.
+- A new manga can start from a copy of another manga's approved style.
 
 ### 1. Characters
 
@@ -170,7 +174,7 @@ jobs against a memory budget, prefers mid-size LLMs (Qwen 3.8 27B, Gemma 4
 | user            | username (unique), password hash (scrypt), created                                   |
 | session         | token hash, user, expires                                                            |
 | style           | owner, name, colour mode, spec (JSON), prompt fragment, model settings, sheet assets |
-| project         | owner, title, logline, genre, tone, page target, style, reading direction, phase     |
+| manga           | owner, title, logline, reading direction, style (its own copy)                       |
 | character       | owner, name, role, profile (JSON), visual spec (JSON)                                |
 | location        | owner, name, description, mood                                                       |
 | story           | project, structure template, beats (ordered)                                         |
@@ -300,7 +304,7 @@ and restarts on failure, with hot reload intact:
 
 0. **Foundation** _(done)_: repo, CI, scaffold, placeholder page on the
    tailnet, dev server under launchd.
-1. **Platform**: SQLite + migrations, accounts and sessions, project CRUD,
+1. **Platform**: SQLite + migrations, accounts and sessions, manga CRUD,
    asset store, job queue + SSE, `TextModel` (Ollama), `ImageModel`
    (ComfyUI) and fakes. Manga style evaluation (see above).
 2. **Style and characters**: style spec, style sheet, interview, visual spec, sheet generation and approval,

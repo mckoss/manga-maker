@@ -335,6 +335,55 @@ export function createStyle(db: Db, ownerId: number, input: StyleInput): number 
 	return styleId;
 }
 
+/**
+ * Copy a style's approved version into a new style, samples included, so
+ * another manga can start from it. The copy is approved and ready to use.
+ */
+export function copyStyle(db: Db, ownerId: number, fromStyleId: number, name: string): number {
+	const source = ownedStyle(db, ownerId, fromStyleId);
+	if (!source.activeVersionId) throw new StyleError('Only an approved style can be reused.');
+	const version = ownedVersion(db, ownerId, source.activeVersionId);
+	const samples = samplesFor(db, [version.id]);
+	const now = new Date();
+	return db.transaction((tx) => {
+		const style = tx.insert(styles).values({ ownerId, name, createdAt: now }).returning().get();
+		const copy = tx
+			.insert(styleVersions)
+			.values({
+				styleId: style.id,
+				number: 1,
+				status: 'approved',
+				description: version.description,
+				colorMode: version.colorMode,
+				prompt: version.prompt,
+				avoid: version.avoid,
+				scenes: version.scenes,
+				model: version.model,
+				seed: version.seed,
+				notes: `Copied from "${source.name}".`,
+				createdAt: now,
+				approvedAt: now
+			})
+			.returning()
+			.get();
+		for (const sample of samples) {
+			tx.insert(styleSamples)
+				.values({
+					versionId: copy.id,
+					subject: sample.subject,
+					prompt: sample.prompt,
+					seed: sample.seed,
+					assetHash: sample.assetHash,
+					thumbHash: sample.thumbHash,
+					createdAt: now
+				})
+				.run();
+		}
+		tx.update(styles).set({ activeVersionId: copy.id }).where(eq(styles.id, style.id)).run();
+		return style.id;
+	});
+}
+
 export function renameStyle(db: Db, ownerId: number, styleId: number, name: string): void {
 	ownedStyle(db, ownerId, styleId);
 	if (!name.trim()) throw new StyleError('Give the style a name.');
