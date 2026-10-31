@@ -109,3 +109,23 @@ export const styleSamples = sqliteTable('style_samples', {
 });
 
 export type StyleSample = typeof styleSamples.$inferSelect;
+
+export type ReadingDirection = 'rtl' | 'ltr';
+
+/** A comic: the top-level thing a user works on. Everything else belongs to one. */
+export const mangas = sqliteTable('mangas', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	ownerId: integer('owner_id')
+		.notNull()
+		.references(() => users.id, { onDelete: 'cascade' }),
+	title: text('title').notNull(),
+	/** One or two sentences: what the story is about. */
+	logline: text('logline').notNull().default(''),
+	readingDirection: text('reading_direction').$type<ReadingDirection>().notNull().default('rtl'),
+	/** This manga's own style; null until one is started. */
+	styleId: integer('style_id').references(() => styles.id, { onDelete: 'set null' }),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+});
+
+export type Manga = typeof mangas.$inferSelect;

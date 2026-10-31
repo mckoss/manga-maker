@@ -29,8 +29,17 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
       negative prompts (ignored at CFG 1) replaced by a "keep out" list the AI
       works into the prompt; negated clauses stripped from AI text
 
+## Milestone 1c: manga collection
+
+- [x] Manga as the top level: collection page with title and cover thumbnail
+- [x] Manga sidebar: Style, Characters, Locations, Plot, Script, Panels, Pages
+      (placeholders for all but Style)
+- [x] Each manga owns its style; start one, or copy another manga's approved
+      style; existing styles migrated into manga of the same name
+- [x] Settings: title, logline, reading direction; delete
+- [x] Playwright end-to-end tests in CI; `main` requires `check` and `e2e`
+
 ## Next
 
-- [ ] Projects: create a comic, pick an approved style and reading direction
 - [ ] Characters (milestone 2): interview, visual spec, reference sheets per style
 - [ ] AI critique of samples with a vision model (Gemma 4)

@@ -9,8 +9,18 @@ export async function signIn(page: Page, account = ADMIN) {
 	await expect(page.getByRole('button', { name: 'Sign out' })).toBeVisible();
 }
 
-/** A page already signed in as the admin. */
-export const test = base.extend<{ signedIn: Page }>({
+export const test = base.extend<{ signedIn: Page; noPageErrors: void }>({
+	/** Fail any test whose page throws an uncaught error in the browser. */
+	noPageErrors: [
+		async ({ page }, use) => {
+			const errors: Error[] = [];
+			page.on('pageerror', (e) => errors.push(e));
+			await use();
+			expect(errors.map((e) => e.message)).toEqual([]);
+		},
+		{ auto: true }
+	],
+	/** A page already signed in as the admin. */
 	signedIn: async ({ page }, use) => {
 		await signIn(page);
 		await use(page);

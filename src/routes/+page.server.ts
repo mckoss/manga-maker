@@ -1,7 +1,7 @@
 import { getDb } from '#lib/server/db/index.js';
-import { listStyles } from '#lib/server/styles.js';
+import { listMangas } from '#lib/server/mangas.js';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => ({
-	styles: listStyles(getDb(), locals.user!.id)
+	mangas: listMangas(getDb(), locals.user!.id)
 });
