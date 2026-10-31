@@ -30,3 +30,8 @@ vite.config.ts.timestamp-*
 
 # Admin usernames for this server (see config/admins.example.txt)
 /config/admins.txt
+
+# End-to-end test runs
+/.e2e-data
+/test-results
+/playwright-report

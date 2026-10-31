@@ -20,16 +20,22 @@ npm run dev
 
 Then open http://localhost:5173 and sign in.
 
-| Command                           | What                                          |
-| --------------------------------- | --------------------------------------------- |
-| `npm run dev`                     | Dev server with hot reload                    |
-| `npm test`                        | Unit tests                                    |
-| `npm run check`                   | Type check                                    |
-| `npm run lint` / `npm run format` | Prettier + ESLint                             |
-| `npm run user -- add <name>`      | Create an account (prompts for password)      |
-| `npm run user -- passwd <name>`   | Reset a password                              |
-| `npm run user -- list`            | List accounts                                 |
-| `npm run db:generate`             | Generate a migration after editing the schema |
+| Command                             | What                                           |
+| ----------------------------------- | ---------------------------------------------- |
+| `npm run dev`                       | Dev server with hot reload                     |
+| `npm test`                          | Unit tests                                     |
+| `npm run build && npm run test:e2e` | End-to-end tests (Playwright, fake AI backend) |
+| `npm run check`                     | Type check                                     |
+| `npm run lint` / `npm run format`   | Prettier + ESLint                              |
+| `npm run user -- add <name>`        | Create an account (prompts for password)       |
+| `npm run user -- passwd <name>`     | Reset a password                               |
+| `npm run user -- list`              | List accounts                                  |
+| `npm run db:generate`               | Generate a migration after editing the schema  |
+
+The end-to-end tests start the production build on port 4173 with a fresh
+database in `.e2e-data/` and stand-in AI models. Run
+`npx playwright install chromium` once first. CI runs them on every PR, and
+`main` only accepts changes whose CI passed.
 
 Without a terminal, add `--generate` to `add` or `passwd` to create a random
 password; it is printed once.
