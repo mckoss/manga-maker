@@ -34,17 +34,30 @@ belong to that manga; for now, to reuse one in another manga the user copies
 it, so changing it in one comic never silently changes another. Each carries
 reference images that every later generation draws on.
 
-### Series (backlog)
+### Series and chapters (planned, v0.10)
 
-A series reuses its cast and look across stories, so copies are the wrong
-default. An **original source** manga defines the core style, characters and
-locations; a later manga **includes them by reference**, chosen explicitly:
-the style, specific characters, specific locations. A referenced style
-replaces the manga's own styling. The source stays the one place they are
-edited, and with versioned items an edit there marks the dependent work in
-every including manga out of date. Open questions: whether an including manga
-can pin a source version or override one detail for its story, and whether a
-reference can later be turned into an independent copy.
+A series reuses its look and cast across stories, so the style, characters
+and locations move up to a **series**, and each story is a **chapter** of it:
+
+- The series owns **one style** and every character and location ever made
+  for it. A one-off story is a series of one chapter.
+- A chapter **picks its cast and locations** from the series, and owns its
+  plot, script, panels and pages. A character made while working on a
+  chapter joins the series (and that chapter's cast), ready for later ones.
+- A chapter **pins the version** of each character (and location) it was
+  made with. A redesign in the series shows as "newer version available" in
+  earlier chapters instead of silently changing finished pages.
+- Navigation: the home page lists series; a series has Style, Characters,
+  Locations and its chapters; a chapter's sidebar has Cast and Locations
+  (pickers), then Plot, Script, Panels and Pages.
+- Existing manga become a series of the same name with one chapter.
+
+### Every generation is kept
+
+Every AI generation, text or image, is a version of a versioned item (see
+"Versioned items" below), so nothing the AI wrote or drew is lost and any of
+it can be recovered. The style works this way; character profiles move onto
+it in v0.11, and plot, script and the later steps are built on it.
 
 Each manga starts with a style, then moves through the creative phases. Each phase produces structured data
 (not just prose), and later phases build on it. Every phase has a **mentor**:

@@ -5,6 +5,7 @@
 	import { page } from '$app/state';
 	import type { PageData } from './$types';
 	import PictureCard from './PictureCard.svelte';
+	import QuestionsCard from './QuestionsCard.svelte';
 	import TextItemCard from './TextItemCard.svelte';
 
 	type Editor = NonNullable<PageData['editor']>;
@@ -74,6 +75,7 @@
 		lines={3}
 		placeholder="Gritty 90s seinen like a detective story: heavy blacks, rough cross-hatching, rain and neon."
 	/>
+	<QuestionsCard questions={ed.questions} />
 	<TextItemCard
 		item={ed.avoid}
 		label="Keep out of every image"

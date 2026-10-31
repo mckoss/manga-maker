@@ -40,6 +40,23 @@ function fakeScenesReply() {
 	};
 }
 
+/** Canned questions about the description. */
+function fakeQuestionsReply() {
+	return {
+		questions: [
+			{ question: 'Which era is it set in?', suggestions: ['The 1700s', 'The 1860s'] },
+			{ question: 'What kind of story is it?', suggestions: ['Samurai drama', 'Ghost story'] }
+		]
+	};
+}
+
+/** The description with the answers added, as the AI would fold them in. */
+function fakeFoldReply(request: string) {
+	const description = request.match(/^The user's description: (.*)$/m)?.[1] ?? '';
+	const answers = request.split('their answers:\n')[1] ?? '';
+	return { description: `${description} ${answers.split('\n').join(' ')}`.trim() };
+}
+
 /** A canned character profile. */
 function fakeCharacterReply() {
 	return {
@@ -61,6 +78,9 @@ export function fakeReply(messages: ChatMessage[]) {
 	const system = messages[0]?.content ?? '';
 	if (system.includes('story editor')) return fakeCharacterReply();
 	if (system.includes('sample scenes')) return fakeScenesReply();
+	if (system.includes('Rewrite their description'))
+		return fakeFoldReply(messages[1]?.content ?? '');
+	if (system.includes('leaves out')) return fakeQuestionsReply();
 	return fakePromptReply(messages[1]?.content ?? '');
 }
 

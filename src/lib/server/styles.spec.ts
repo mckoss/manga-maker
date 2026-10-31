@@ -18,12 +18,14 @@ import {
 	listStyles,
 	picturePrompt,
 	positiveOnly,
+	answerQuestions,
 	requestPictures,
 	requestPrompt,
 	requestScenes,
 	SAMPLE_SUBJECTS,
 	saveSettings,
 	saveText,
+	skipQuestions,
 	styleAccess,
 	StyleError,
 	styleJobHandlers
@@ -47,6 +49,7 @@ const input = {
 
 /** Prompts and scenes numbered by round, so each rewrite is recognizable. */
 function reply(messages: ChatMessage[]) {
+	if (messages[0].content.includes('leaves out')) return { questions: [] };
 	round++;
 	if (messages[0].content.includes('sample scenes')) {
 		return {
@@ -226,7 +229,7 @@ describe('style pipeline', () => {
 		// the picture just waits for them.
 		requestPictures(db, owner, id, 'exterior');
 		await worker.drain();
-		expect(text.calls).toHaveLength(2);
+		expect(text.calls).toHaveLength(3); // questions, prompt, scenes
 		const style = getStyle(db, owner, id);
 		expect(current(style.pictures[3].item)?.assetHash).toBeTruthy();
 		expect(style.ready).toBe(true);
@@ -280,9 +283,75 @@ describe('style pipeline', () => {
 		const id = createStyle(db, owner, input);
 		deleteStyle(db, owner, id);
 		const statuses = db.select({ status: jobs.status }).from(jobs).all();
-		expect(statuses.map((j) => j.status)).toEqual(['canceled', 'canceled']);
+		expect(statuses.map((j) => j.status)).toEqual(['canceled', 'canceled', 'canceled']);
 		await worker.drain();
 		expect(text.calls).toHaveLength(0);
+	});
+});
+
+describe('questions about the description', () => {
+	const asked = {
+		questions: [
+			{ question: 'Which era?', suggestions: ['1700s', ' 1860s ', ''] },
+			{ question: 'What kind of story?', suggestions: [] },
+			{ question: 'What mood?', suggestions: ['Quiet'] }
+		]
+	};
+
+	function withQuestions(fold = 'gritty noir, 1920s Shanghai, a detective story') {
+		text = new FakeTextModel((messages) => {
+			const system = messages[0].content;
+			if (system.includes('leaves out')) return asked;
+			if (system.includes('Rewrite their description')) return { description: fold };
+			return reply(messages);
+		});
+		worker = new Worker(db, { image, text }, styleJobHandlers);
+	}
+
+	it('asks first, and folds the answers into a new description', async () => {
+		withQuestions();
+		const id = createStyle(db, owner, input);
+		await worker.drain();
+		expect(text.calls[0][1].content).toContain('gritty noir, heavy shadows');
+		let style = getStyle(db, owner, id);
+		expect(style.questions.list).toEqual([
+			{ question: 'Which era?', suggestions: ['1700s', '1860s'] },
+			{ question: 'What kind of story?', suggestions: [] },
+			{ question: 'What mood?', suggestions: ['Quiet'] }
+		]);
+		// Nothing waits on the answers.
+		expect(current(style.prompt)).toBeTruthy();
+
+		expect(() => answerQuestions(db, owner, id, ['', ' '])).toThrow(/at least one/);
+		answerQuestions(db, owner, id, ['1920s', 'A detective story']);
+		await worker.drain();
+		const sent = text.calls.at(-1)![1].content;
+		expect(sent).toContain("The user's description: gritty noir, heavy shadows");
+		expect(sent).toContain('Which era? 1920s\nWhat kind of story? A detective story');
+		expect(sent).not.toContain('What mood?');
+
+		style = getStyle(db, owner, id);
+		expect(style.description.versions.map((v) => v.text)).toEqual([
+			'gritty noir, heavy shadows',
+			'gritty noir, 1920s Shanghai, a detective story'
+		]);
+		expect(current(style.description)?.origin).toBe('ai');
+		expect(style.questions.list).toEqual([]);
+		expect(current(style.prompt)?.outOfDate).toEqual(['the description']);
+	});
+
+	it('asks again when the user rewrites the description, and can be skipped', async () => {
+		withQuestions();
+		const id = createStyle(db, owner, input);
+		await worker.drain();
+		skipQuestions(db, owner, id);
+		expect(getStyle(db, owner, id).questions.list).toEqual([]);
+
+		saveText(db, owner, id, 'description', '', 'soft shoujo watercolor');
+		expect(getStyle(db, owner, id).questions.item.pending).toBe(true);
+		await worker.drain();
+		expect(getStyle(db, owner, id).questions.list).toHaveLength(3);
+		expect(text.calls.at(-1)![1].content).toContain('soft shoujo watercolor');
 	});
 });
 
