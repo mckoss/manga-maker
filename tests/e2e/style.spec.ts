@@ -68,3 +68,25 @@ test('marks later steps out of date and regenerates only those', async ({ signed
 	await expect(picture(page, 'Action').getByText('2 of 2')).toBeVisible();
 	await expect(page.getByText('Made before the style prompt changed.')).toHaveCount(0);
 });
+
+test('folds answers to the art director’s questions into the description', async ({
+	signedIn: page
+}) => {
+	await newStyle(page, 'Questions');
+	await expect(page.getByText('Which era is it set in?')).toBeVisible();
+	await page.getByRole('button', { name: 'The 1860s' }).click();
+	await page
+		.getByRole('textbox', { name: 'Answer: What kind of story is it?' })
+		.fill('A quiet village drama');
+	await page.getByRole('button', { name: 'Add my answers to the description' }).click();
+
+	const description = page.getByRole('textbox', { name: 'Description', exact: true });
+	await expect(description).toHaveValue(/The 1860s.*A quiet village drama/);
+	await expect(page.getByText('Which era is it set in?')).toHaveCount(0);
+	await expect(page.getByText('Made before the description changed.').first()).toBeVisible();
+
+	await page.getByRole('button', { name: "Ask the art director what's missing" }).click();
+	await expect(page.getByText('Which era is it set in?')).toBeVisible();
+	await page.getByRole('button', { name: 'Skip these questions' }).click();
+	await expect(page.getByText('Which era is it set in?')).toHaveCount(0);
+});

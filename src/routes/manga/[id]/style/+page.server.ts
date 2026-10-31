@@ -10,6 +10,7 @@ import {
 	startStyle
 } from '#lib/server/mangas.js';
 import {
+	answerQuestions,
 	COLOR_MODES,
 	getStyle,
 	isColorMode,
@@ -17,10 +18,12 @@ import {
 	isSubject,
 	requestPictures,
 	requestPrompt,
+	requestQuestions,
 	requestScenes,
 	isTextKind,
 	saveSettings,
 	saveText,
+	skipQuestions,
 	styleAccess,
 	StyleError,
 	type Which
@@ -126,6 +129,28 @@ export const actions: Actions = {
 			saveText(db, locals.user!.id, styleId, kind, str(form, 'key'), str(form, 'text'));
 		}, 'Saved.');
 	},
+	askQuestions: async ({ locals, params }) =>
+		run(() => {
+			const { db, styleId } = access(locals, params);
+			requestQuestions(db, locals.user!.id, styleId);
+		}),
+	answerQuestions: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		return run(() => {
+			const { db, styleId } = access(locals, params);
+			answerQuestions(
+				db,
+				locals.user!.id,
+				styleId,
+				form.getAll('answer').map((a) => String(a))
+			);
+		});
+	},
+	skipQuestions: async ({ locals, params }) =>
+		run(() => {
+			const { db, styleId } = access(locals, params);
+			skipQuestions(db, locals.user!.id, styleId);
+		}),
 	writePrompt: async ({ request, locals, params }) => {
 		const form = await request.formData();
 		return run(() => {

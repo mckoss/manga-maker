@@ -73,13 +73,23 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [x] Existing styles migrated with their history; American spelling
       throughout
 
+## Milestone 2d: questions about the description
+
+- [x] The art director asks up to four specific questions, with suggested
+      answers, when a style description leaves out what would change the
+      pictures (era, genre, mood, line work, references); none when it is
+      detailed. Asked on start and whenever the user rewrites it
+- [x] Answers fold into a new description version (in the user's voice);
+      questions can be skipped and never block the prompt or samples
+- [x] Plan: series and chapters; every generation kept
+
 ## Next
 
-- [ ] The AI asks questions when the description is thin (v0.9)
-- [ ] Characters on the versioned items layer (v0.10)
+- [ ] Series and chapters: style, characters and locations move to the
+      series; a chapter picks its cast and locations and pins their versions
+      (v0.10; see PLAN.md, "Series and chapters")
+- [ ] Characters on the versioned items layer: every profile generation kept
+      (v0.11)
 
 - [ ] Locations (milestone 3)
-- [ ] Series: a new manga includes another manga's style, chosen characters
-      and chosen locations by explicit reference instead of a copy (see
-      PLAN.md, "Series")
 - [ ] AI critique of samples with a vision model (Gemma 4)

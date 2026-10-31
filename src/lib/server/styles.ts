@@ -213,7 +213,10 @@ const pictureInputs = (s: StyleState, key: string) => ({
 });
 
 /** What a new version of an item would be made from; null for the user's own inputs. */
+const questionInputs = (s: StyleState) => ({ description: s.description });
+
 function inputsFor(state: StyleState, item: Pick<Item, 'kind' | 'key'>) {
+	if (item.kind === 'questions') return questionInputs(state);
 	if (item.kind === 'prompt') return promptInputs(state);
 	if (item.kind === 'scene') return sceneInputs(state);
 	if (item.kind === 'picture') return pictureInputs(state, item.key);
@@ -323,9 +326,11 @@ export function getStyle(db: Db, ownerId: number, styleId: number) {
 	const view = (kind: string, key = '') =>
 		views.get(key ? `${kind}:${key}` : kind) ?? emptyView(kind, key);
 	const all = [...views.values()];
+	const questions = view('questions');
 	return {
 		style,
 		description: view('description'),
+		questions: { item: questions, list: openQuestions(questions) },
 		avoid: view('avoid'),
 		prompt: view('prompt'),
 		scenes: SAMPLE_SUBJECTS.map((s) => ({ ...s, item: view('scene', s.key) })),
@@ -336,6 +341,33 @@ export function getStyle(db: Db, ownerId: number, styleId: number) {
 }
 
 export type StyleDetail = ReturnType<typeof getStyle>;
+
+const question = z.object({
+	question: z.string().min(1),
+	/** Short answers the user can pick instead of typing one. */
+	suggestions: z.array(z.string()).default([])
+});
+
+export type Question = z.infer<typeof question>;
+
+/**
+ * The AI's questions about the current description, if it has any the user
+ * hasn't answered or skipped yet. Questions about an older description are
+ * not shown: a new set is asked when the user changes it.
+ */
+function openQuestions(item: ItemView): Question[] {
+	const current = item.versions.find((v) => v.id === item.currentId);
+	if (!current || current.outOfDate.length || item.pending) return [];
+	return parseQuestions(current.text);
+}
+
+function parseQuestions(text: string): Question[] {
+	try {
+		return z.array(question).parse(JSON.parse(text));
+	} catch {
+		return [];
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Commands
@@ -369,6 +401,7 @@ export function createStyle(db: Db, ownerId: number, input: StyleInput): number 
 		origin: 'user',
 		text: description
 	});
+	requestQuestions(db, ownerId, style.id);
 	requestPrompt(db, ownerId, style.id);
 	requestScenes(db, ownerId, style.id, 'outdated');
 	return style.id;
@@ -468,6 +501,47 @@ export function saveText(
 			inputs: inputsFor(state, slot) ?? {}
 		})
 	);
+	if (kind === 'description') requestQuestions(db, ownerId, styleId);
+}
+
+/** Ask the AI whether the description leaves out anything that would change the pictures. */
+export function requestQuestions(db: Db, ownerId: number, styleId: number): void {
+	ownedStyle(db, ownerId, styleId);
+	const item = ensureItem(db, ownerId, styleScope(styleId), 'questions');
+	if (item.locked) return;
+	const version = startVersion(db, item);
+	const job = enqueue(db, ownerId, 'style.questions', { styleId, versionId: version.id });
+	attachJob(db, [version.id], job.id);
+}
+
+/**
+ * Have the AI fold the user's answers into a new version of the description.
+ * Unanswered questions are dropped.
+ */
+export function answerQuestions(db: Db, ownerId: number, styleId: number, answers: string[]): void {
+	const style = ownedStyle(db, ownerId, styleId);
+	const state = stateOf(db, style);
+	const asked = parseQuestions(state.current.get('questions')?.text ?? '[]');
+	const answered = asked
+		.map((q, i) => ({ question: q.question, answer: answers[i]?.trim() ?? '' }))
+		.filter((qa) => qa.answer);
+	if (!answered.length) throw new StyleError('Answer at least one question, or skip them.');
+	const item = ensureItem(db, ownerId, styleScope(styleId), 'description');
+	const version = run(() =>
+		startVersion(db, item, {
+			guidance: answered.map((qa) => `${qa.question} ${qa.answer}`).join('\n')
+		})
+	);
+	const job = enqueue(db, ownerId, 'style.fold', { styleId, versionId: version.id });
+	attachJob(db, [version.id], job.id);
+}
+
+/** Put the questions away without answering them. */
+export function skipQuestions(db: Db, ownerId: number, styleId: number): void {
+	const style = ownedStyle(db, ownerId, styleId);
+	const state = stateOf(db, style);
+	const item = ensureItem(db, ownerId, styleScope(styleId), 'questions');
+	run(() => addVersion(db, item, { origin: 'user', text: '[]', inputs: questionInputs(state) }));
 }
 
 /** Turn a VersionError into a StyleError the page shows. */
@@ -752,7 +826,90 @@ const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
 	});
 };
 
+const QUESTIONS_SYSTEM = `You are an experienced manga art director helping someone who may be new to comics describe the drawing style they want, before an AI image model draws in it.
+
+Read their description and decide what it leaves out that would change the pictures: the era or period, the place, the kind of story (genre), the mood, the audience, how detailed or sparse the drawing is, the line work and shading, or artists and works it should look like. Ask only about real gaps that matter most for this description, at most four. Do not ask about anything the description already settles, and do not ask for finer detail about what it already covers. A short, vague description needs three or four questions; a detailed one needs one or two, or none.
+
+Each question is short and specific to their description ("Which part of the Edo period: the 1700s or the 1860s?"), with two to four short suggested answers that fit what they wrote.
+
+Reply with only a JSON object with the key "questions": a list of objects with the keys "question" and "suggestions" (a list of strings). The list may be empty.`;
+
+const questionsReply = z.object({ questions: z.array(question).max(6).default([]) });
+
+export function questionMessages(state: StyleState) {
+	const lines = [
+		`The user's description of the look they want: ${state.description}`,
+		`Color mode: ${COLOR_MODES[state.style.colorMode].label}`
+	];
+	if (state.avoid) lines.push(`Keep out of every image: ${state.avoid}`);
+	return [
+		{ role: 'system' as const, content: QUESTIONS_SYSTEM },
+		{ role: 'user' as const, content: lines.join('\n') }
+	];
+}
+
+const FOLD_SYSTEM = `You are an experienced manga art director. The user described the drawing style they want, and answered some of your questions about it. Rewrite their description so it includes their answers.
+
+Keep everything they wrote and keep their voice; add each answer where it fits. Write plain prose of one to five sentences, with no headings or lists. Do not add anything they did not say.
+
+Reply with only a JSON object with the key "description".`;
+
+const foldReply = z.object({ description: z.string().min(1) });
+
+export function foldMessages(description: string, answers: string) {
+	return [
+		{ role: 'system' as const, content: FOLD_SYSTEM },
+		{
+			role: 'user' as const,
+			content: `The user's description: ${description}\nYour questions and their answers:\n${answers}`
+		}
+	];
+}
+
+const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
+	const { styleId, versionId } = job.payload as { styleId: number; versionId: number };
+	const target = jobTarget(db, styleId, versionId);
+	if (!target) return;
+	const state = stateOf(db, target.style);
+	const reply = await ai.text.json(questionMessages(state), questionsReply, signal);
+	const list = reply.questions.slice(0, 4).map((q) => ({
+		question: q.question.trim(),
+		suggestions: q.suggestions
+			.map((s) => s.trim())
+			.filter(Boolean)
+			.slice(0, 4)
+	}));
+	finishVersion(db, versionId, { text: JSON.stringify(list), inputs: questionInputs(state) });
+};
+
+const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
+	const { styleId, versionId } = job.payload as { styleId: number; versionId: number };
+	const target = jobTarget(db, styleId, versionId);
+	if (!target) return;
+	const state = stateOf(db, target.style);
+	const reply = await ai.text.json(
+		foldMessages(state.description, target.version.guidance),
+		foldReply,
+		signal
+	);
+	finishVersion(db, versionId, {
+		text: reply.description.trim(),
+		notes: 'Your answers, folded into the description.'
+	});
+	// The questions were about the old description; they are now answered.
+	const questions = ensureItem(db, target.item.ownerId, styleScope(styleId), 'questions');
+	if (!questions.locked) {
+		addVersion(db, questions, {
+			origin: 'user',
+			text: '[]',
+			inputs: questionInputs(stateOf(db, target.style))
+		});
+	}
+};
+
 export const styleJobHandlers: Record<string, JobHandler> = {
+	'style.questions': questionsHandler,
+	'style.fold': foldHandler,
 	'style.prompt': promptHandler,
 	'style.scenes': scenesHandler,
 	'style.picture': pictureHandler
