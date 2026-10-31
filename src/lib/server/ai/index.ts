@@ -2,7 +2,7 @@ import { ComfyUI } from './comfyui';
 import { FakeImageModel, FakeTextModel } from './fake';
 import type { ImageModel } from './image';
 import { Ollama } from './ollama';
-import type { TextModel } from './text';
+import type { ChatMessage, TextModel } from './text';
 
 export interface AiServices {
 	image: ImageModel;
@@ -23,10 +23,31 @@ function fakeStyleReply() {
 	};
 }
 
+/** A canned character profile. */
+function fakeCharacterReply() {
+	return {
+		name: 'Aiko',
+		personality: 'Stubborn and kind. Too proud to ask for help.',
+		motivation: 'Wants to find her brother; needs to forgive him.',
+		backstory: 'Raised in a mountain village by her grandmother.',
+		speech: 'Short, blunt sentences.',
+		age: 'a young woman of about twenty',
+		appearance:
+			'slim and tall, sharp eyes, long black hair in a high ponytail, a small scar on her chin',
+		outfit: 'a dark travelling kimono, straw sandals and a wooden staff',
+		notes: 'Fake AI backend: this is a placeholder profile, not a real suggestion.'
+	};
+}
+
+/** Answers each kind of request the app makes with a canned reply. */
+function fakeReply(messages: ChatMessage[]) {
+	return messages[0]?.content.includes('story editor') ? fakeCharacterReply() : fakeStyleReply();
+}
+
 /** The local AI services, or fakes when AI_BACKEND=fake. */
 export function createAiServices(): AiServices {
 	if (process.env.AI_BACKEND === 'fake') {
-		return { image: new FakeImageModel(), text: new FakeTextModel(fakeStyleReply) };
+		return { image: new FakeImageModel(), text: new FakeTextModel(fakeReply) };
 	}
 	return { image: new ComfyUI(), text: new Ollama() };
 }

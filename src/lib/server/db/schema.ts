@@ -129,3 +129,56 @@ export const mangas = sqliteTable('mangas', {
 });
 
 export type Manga = typeof mangas.$inferSelect;
+
+/** A member of a manga's cast. The look fields drive every picture of them. */
+export const characters = sqliteTable('characters', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	mangaId: integer('manga_id')
+		.notNull()
+		.references(() => mangas.id, { onDelete: 'cascade' }),
+	name: text('name').notNull().default(''),
+	/** protagonist | antagonist | supporting | minor */
+	role: text('role').notNull().default('supporting'),
+	/** The user's own words about the character, which the AI develops. */
+	brief: text('brief').notNull().default(''),
+	personality: text('personality').notNull().default(''),
+	motivation: text('motivation').notNull().default(''),
+	backstory: text('backstory').notNull().default(''),
+	speech: text('speech').notNull().default(''),
+	age: text('age').notNull().default(''),
+	/** Body, face and hair, as words an image model can draw. */
+	appearance: text('appearance').notNull().default(''),
+	outfit: text('outfit').notNull().default(''),
+	/** The AI's explanation of its latest draft. */
+	notes: text('notes').notNull().default(''),
+	/** Candidate seeds derive from this, so redraws after edits compare like for like. */
+	seed: integer('seed').notNull(),
+	/** The chosen picture every later image of this character is drawn from. */
+	referenceImageId: integer('reference_image_id'),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+});
+
+export type Character = typeof characters.$inferSelect;
+
+/** A generated picture of a character. */
+export const characterImages = sqliteTable('character_images', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	characterId: integer('character_id')
+		.notNull()
+		.references(() => characters.id, { onDelete: 'cascade' }),
+	/** candidate: a full-body design option to choose the reference from. */
+	kind: text('kind').notNull(),
+	prompt: text('prompt').notNull(),
+	seed: integer('seed').notNull(),
+	/** The style version it was drawn in, to flag pictures from an older style. */
+	styleVersionId: integer('style_version_id').references(() => styleVersions.id, {
+		onDelete: 'set null'
+	}),
+	jobId: integer('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+	assetHash: text('asset_hash').references(() => assets.hash),
+	thumbHash: text('thumb_hash').references(() => assets.hash),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
+});
+
+export type CharacterImage = typeof characterImages.$inferSelect;

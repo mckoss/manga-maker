@@ -32,6 +32,13 @@
 							<small class="status {data.manga.styleStatus}"
 								>{STYLE_BADGE[data.manga.styleStatus]}</small
 							>
+						{:else if phase.key === 'characters' && data.castSize}
+							<small
+								class="status"
+								class:approved={data.castReady === data.castSize}
+								title="{data.castReady} of {data.castSize} have a reference picture"
+								>{data.castReady}/{data.castSize}</small
+							>
 						{/if}
 					</a>
 				</li>

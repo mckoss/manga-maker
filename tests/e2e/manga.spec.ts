@@ -28,7 +28,7 @@ test('creates a manga and walks its steps', async ({ signedIn: page }) => {
 	for (const step of STEPS) await expect(steps.getByRole('link', { name: step })).toBeVisible();
 	await expect(steps.getByText('not started')).toBeVisible();
 
-	for (const step of STEPS.slice(1)) {
+	for (const step of STEPS.slice(2)) {
 		await steps.getByRole('link', { name: step }).click();
 		await expect(page.getByRole('heading', { name: step, level: 1 })).toBeVisible();
 		await expect(page.getByText('Not built yet.')).toBeVisible();
