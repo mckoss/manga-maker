@@ -192,6 +192,14 @@ export const characters = sqliteTable('characters', {
 	seed: integer('seed').notNull(),
 	/** The chosen picture every later image of this character is drawn from. */
 	referenceImageId: integer('reference_image_id'),
+	/**
+	 * What the AI found the latest designs could vary (free) and what the notes,
+	 * age and setting decide (fixed), shown beside the design options.
+	 */
+	designTraits: text('design_traits', { mode: 'json' }).$type<{
+		fixed: string[];
+		free: string[];
+	}>(),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 });

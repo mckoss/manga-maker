@@ -105,10 +105,24 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [x] Choosing an option makes its appearance and outfit the character's
 - [x] "Keep" replaces "Lock" throughout the style page
 
+## Milestone 2g: editable designs (v0.12.0)
+
+- [x] The AI writes new design options whenever the character's look
+      changes (notes, age, appearance or outfit, saved by the user or
+      revised by the AI); the reference and pinned designs stay
+- [x] Designs are written first and drawn on request: each option's label,
+      appearance and outfit can be edited before it is drawn, and edited
+      again to redraw just that one (same words: new seed); editing the
+      reference adds a new option beside it
+- [x] "What the designs vary" lists the free traits and their ranges, and
+      what stays fixed
+- [x] Save on the character page says it saved (or that there are unsaved
+      changes) next to the button
+
 ## Next
 
 - [ ] Characters on the versioned items layer: every profile generation kept
-      (v0.12)
+      (v0.13)
 
 - [ ] Locations (milestone 3)
 - [ ] AI critique of samples with a vision model (Gemma 4)
