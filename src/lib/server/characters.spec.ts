@@ -50,6 +50,7 @@ let styleId: number;
 
 function reply(messages: ChatMessage[]) {
 	if (messages[0].content.includes('sample scenes')) return fakeReply(messages);
+	if (messages[0].content.includes('different visual designs')) return fakeReply(messages);
 	if (messages[0].content.includes('art director')) return { prompt: 'bold ink', notes: '' };
 	return {
 		name: 'Aiko',
@@ -154,14 +155,27 @@ describe('characters', () => {
 		expect(detail.candidates.every((c) => c.assetHash && !c.stale && !c.oldStyle)).toBe(true);
 		const call = image.calls.at(-1)!;
 		expect(call).toMatchObject(CANDIDATE_SIZE);
-		expect(call.prompt).toBe(characterPrompt(detail.style!, detail.character));
-		expect(call.prompt).toMatch(
-			/^Black and white.*bold ink\. Wide shot, full-body.*\. A young woman\. tall.*Wearing a dark kimono\. The whole figure.*black ink on white paper\.$/
+		// Each option is drawn from its own design, not the same prompt.
+		const prompts = image.calls.slice(-CANDIDATE_COUNT).map((c) => c.prompt);
+		expect(new Set(prompts).size).toBe(CANDIDATE_COUNT);
+		expect(prompts[1]).toMatch(
+			/^Black and white.*bold ink\. Wide shot, full-body.*\. A young woman\. a young woman with cropped hair.*Wearing a dark traveling kimono.*black ink on white paper\.$/
 		);
+		expect(detail.candidates.map((c) => c.variant)).toEqual([
+			'close to the profile',
+			'short and stocky, cropped hair',
+			'lanky, braid, travel cloak',
+			'wiry, wild hair, goggles'
+		]);
 
+		// Choosing one makes its look the character's; the other options stay fresh.
 		const chosen = detail.candidates[2];
 		chooseReference(db, owner, id, chosen.id);
 		expect(listCharacters(db, owner, seriesId)[0].thumb).toBe(chosen.thumbHash);
+		detail = getCharacter(db, owner, id);
+		expect(detail.character.appearance).toBe(chosen.appearance);
+		expect(detail.reference?.prompt).toBe(characterPrompt(detail.style!, detail.character));
+		expect(detail.candidates.some((c) => c.stale)).toBe(false);
 
 		// New candidates replace the others but keep the reference.
 		requestCandidates(db, owner, id, { newSeed: true });
@@ -177,9 +191,18 @@ describe('characters', () => {
 		await worker.drain();
 		requestCandidates(db, owner, id);
 		await worker.drain();
-		const c = getCharacter(db, owner, id).character;
+		chooseReference(db, owner, id, getCharacter(db, owner, id).candidates[1].id);
+		let c = getCharacter(db, owner, id).character;
+		// A new outfit dates the reference; the other options are alternatives.
 		updateCharacter(db, owner, id, { ...c, outfit: 'red armor' });
-		expect(getCharacter(db, owner, id).candidates.every((i) => i.stale)).toBe(true);
+		let detail = getCharacter(db, owner, id);
+		expect(detail.reference?.stale).toBe(true);
+		expect(detail.candidates.filter((i) => i.stale)).toHaveLength(1);
+		// A new age dates them all.
+		c = detail.character;
+		updateCharacter(db, owner, id, { ...c, age: 'an old woman' });
+		detail = getCharacter(db, owner, id);
+		expect(detail.candidates.every((i) => i.stale)).toBe(true);
 
 		requestPrompt(db, owner, styleId, 'more contrast');
 		await worker.drain();
@@ -257,9 +280,8 @@ describe('characters', () => {
 		await worker.drain();
 		requestCandidates(db, owner, id);
 		deleteCharacter(db, owner, id);
-		expect(db.select().from(jobs).where(eq(jobs.status, 'canceled')).all()).toHaveLength(
-			CANDIDATE_COUNT
-		);
+		// The design proposals, before any picture is queued.
+		expect(db.select().from(jobs).where(eq(jobs.status, 'canceled')).all()).toHaveLength(1);
 		createCharacter(db, owner, seriesId, brief);
 		deleteSeries(db, owner, seriesId);
 		expect(db.select().from(characterImages).all()).toEqual([]);

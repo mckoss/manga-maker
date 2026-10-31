@@ -38,7 +38,7 @@
 	};
 
 	const confirmLocked = (e: SubmitEvent) => {
-		if (item.locked && !confirm(`${label} is locked. Delete this version anyway?`)) {
+		if (item.locked && !confirm(`${label} is kept. Delete this version anyway?`)) {
 			e.preventDefault();
 		}
 	};
@@ -78,21 +78,23 @@
 			{#if isCurrent}<strong>in use</strong>{:else}<em>not in use</em>{/if}
 			· {ORIGIN[shown.origin] ?? shown.origin}
 		</span>
-		{#if item.locked}<span class="badge lock">Locked</span>{/if}
+		{#if item.locked}<span class="badge lock">Kept</span>{/if}
 	</div>
 	<div class="actions">
 		{#if !isCurrent && !item.locked}
 			<form method="POST" action="?/useVersion" use:enhance>
 				<input type="hidden" name="versionId" value={shown.id} />
 				<button type="submit" class="secondary small">Use this version</button>
-				<button type="submit" class="secondary small" name="lock" value="on">Use and lock</button>
+				<button type="submit" class="secondary small" name="lock" value="on">Use and keep</button>
 			</form>
 		{/if}
 		{#if isCurrent && lockable}
 			<form method="POST" action="?/lock" use:enhance>
 				<input type="hidden" name="itemId" value={item.id} />
 				<input type="hidden" name="locked" value={item.locked ? '' : 'on'} />
-				<button type="submit" class="secondary small">{item.locked ? 'Unlock' : 'Lock'}</button>
+				<button type="submit" class="secondary small"
+					>{item.locked ? 'Stop keeping' : 'Keep'}</button
+				>
 			</form>
 		{/if}
 		<form method="POST" action="?/deleteVersion" use:enhance onsubmit={confirmLocked}>

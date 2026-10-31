@@ -75,7 +75,7 @@
 		{#if editable}
 			<button type="submit" class="secondary small">Save {label.toLowerCase()}</button>
 		{:else if item.locked}
-			<span class="hint">Locked. Unlock it to change it.</span>
+			<span class="hint">Kept. Stop keeping it to change it.</span>
 		{/if}
 	</form>
 	<VersionNav {item} {shown} {label} lockable={!!regenerate} onview={(v) => (viewId = v)} />

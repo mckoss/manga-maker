@@ -214,6 +214,14 @@ export const characterImages = sqliteTable('character_images', {
 	/** For sheet pictures, the reference picture they were redrawn from. */
 	sourceImageId: integer('source_image_id'),
 	prompt: text('prompt').notNull(),
+	/**
+	 * For candidates, the design it was drawn from: a short label, and the
+	 * appearance and outfit that become the character's when it is chosen.
+	 * Null for sheet pictures and for candidates from before designs.
+	 */
+	variant: text('variant'),
+	appearance: text('appearance'),
+	outfit: text('outfit'),
 	seed: integer('seed').notNull(),
 	/** The style prompt version it was drawn in, to flag pictures from an older style. */
 	stylePromptVersionId: integer('style_prompt_version_id').references(() => versions.id, {

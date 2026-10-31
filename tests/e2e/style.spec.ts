@@ -14,9 +14,7 @@ async function newStyle(page: Page, title: string) {
 const picture = (page: Page, label: string) =>
 	page.locator('.picture').filter({ has: page.getByText(label, { exact: true }) });
 
-test('keeps versions of a picture, goes back to one and locks it in', async ({
-	signedIn: page
-}) => {
+test('keeps versions of a picture, goes back to one and keeps it', async ({ signedIn: page }) => {
 	await newStyle(page, 'Versions');
 	const face = picture(page, 'Face');
 	await face.getByText('Redraw…').click();
@@ -30,9 +28,9 @@ test('keeps versions of a picture, goes back to one and locks it in', async ({
 	await face.getByRole('button', { name: 'Older version of Face' }).click();
 	await expect(face.getByText('1 of 2')).toBeVisible();
 	await expect(face.getByText('not in use')).toBeVisible();
-	await face.getByRole('button', { name: 'Use and lock' }).click();
-	await expect(page.getByText('Using that version, locked.')).toBeVisible();
-	await expect(face.getByText('Locked', { exact: true })).toBeVisible();
+	await face.getByRole('button', { name: 'Use and keep' }).click();
+	await expect(page.getByText('Using that version, and keeping it.')).toBeVisible();
+	await expect(face.getByText('Kept', { exact: true })).toBeVisible();
 	await expect(face.getByText('Redraw…')).toHaveCount(0);
 
 	// Deleting a locked version asks first.
@@ -41,7 +39,7 @@ test('keeps versions of a picture, goes back to one and locks it in', async ({
 	await expect(page.getByText('Version deleted.')).toBeVisible();
 	// The newer version, still locked, is the only one left.
 	await expect(face.getByText('Seed 12345')).toBeVisible();
-	await expect(face.getByText('Locked', { exact: true })).toBeVisible();
+	await expect(face.getByText('Kept', { exact: true })).toBeVisible();
 	await expect(face.getByRole('button', { name: 'Older version of Face' })).toHaveCount(0);
 });
 
