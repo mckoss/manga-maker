@@ -156,7 +156,7 @@
 	{#if !data.style}
 		<p class="hint">
 			Pictures are drawn in the manga's style: <a href={resolve('/manga/[id]/style', { id })}
-				>approve a style</a
+				>draw a sample picture of the style</a
 			> first.
 		</p>
 	{/if}
@@ -184,7 +184,7 @@
 					{:else if img.pending}
 						<div class="placeholder"><span class="spinner"></span> Drawing…</div>
 					{:else}
-						<div class="placeholder">Cancelled</div>
+						<div class="placeholder">Canceled</div>
 					{/if}
 				</figure>
 			{/each}
@@ -230,17 +230,27 @@
 						{:else}
 							<div class="placeholder">—</div>
 						{/if}
-						<figcaption class="row">
+						<figcaption>
 							{cell.label}
-							<form method="POST" action="?/sheet" use:enhance>
-								<input type="hidden" name="view" value={cell.view} />
-								<button
-									type="submit"
-									class="secondary small"
-									disabled={cell.image?.pending}
-									aria-label="Redraw {cell.label}">Redraw</button
-								>
-							</form>
+							<details class="redraw">
+								<summary>Redraw…</summary>
+								<form method="POST" action="?/sheet" use:enhance>
+									<input type="hidden" name="view" value={cell.view} />
+									<label>
+										Guidance (optional)
+										<textarea
+											name="guidance"
+											rows="2"
+											placeholder="Looking over her shoulder, mouth closed…"></textarea>
+									</label>
+									<button
+										type="submit"
+										class="secondary small"
+										disabled={cell.image?.pending}
+										aria-label="Redraw {cell.label}">Redraw</button
+									>
+								</form>
+							</details>
 						</figcaption>
 					</figure>
 				{/each}
@@ -298,12 +308,14 @@
 	.portrait form {
 		margin-top: 0.35rem;
 	}
-	.portrait figcaption.row {
-		justify-content: space-between;
-		margin: 0.25rem 0 0;
+	.redraw summary {
+		cursor: pointer;
+		font-size: 0.85rem;
+		color: var(--muted);
 	}
-	.portrait figcaption form {
-		margin: 0;
+	.redraw textarea {
+		min-height: 2lh;
+		font-size: 0.85rem;
 	}
 	@media (max-width: 720px) {
 		.layout {

@@ -35,7 +35,7 @@ function promptHidden(question: string): Promise<string> {
 					return;
 				} else if (ch === '\u0003') {
 					done();
-					reject(new UserError('Cancelled.'));
+					reject(new UserError('Canceled.'));
 					return;
 				} else if (ch === '\u007f') {
 					input = input.slice(0, -1);

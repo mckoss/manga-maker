@@ -43,6 +43,13 @@
       "when": 1793427769233,
       "tag": "0005_character_sheets",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1793449852558,
+      "tag": "0006_style_items",
+      "breakpoints": true
     }
   ]
 }

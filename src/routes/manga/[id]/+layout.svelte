@@ -8,7 +8,7 @@
 
 	let id = $derived(String(data.manga.id));
 	let current = $derived(page.url.pathname.split('/')[3] ?? '');
-	const STYLE_BADGE = { none: 'not started', draft: 'draft', approved: 'approved' } as const;
+	const STYLE_BADGE = { none: 'not started', started: 'in progress', ready: 'ready' } as const;
 </script>
 
 <svelte:head><title>{data.manga.title} · Manga Maker</title></svelte:head>
@@ -108,6 +108,7 @@
 		color: var(--muted);
 		font-size: 0.75rem;
 	}
+	.status.ready,
 	.status.approved {
 		color: var(--accent);
 	}

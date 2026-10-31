@@ -6,8 +6,8 @@
 
 	const STYLE_STATUS = {
 		none: 'Style not started',
-		draft: 'Style in progress',
-		approved: 'Style approved'
+		started: 'Style in progress',
+		ready: 'Style ready'
 	} as const;
 </script>
 

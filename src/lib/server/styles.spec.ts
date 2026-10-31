@@ -4,30 +4,31 @@ import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
-import { jobs, styleSamples } from './db/schema';
+import { jobs } from './db/schema';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
+import type { ChatMessage } from './ai/text';
 import { Worker } from './jobs';
 import { createUser } from './auth/users';
 import {
-	approveDraft,
 	compilePrompt,
+	copyStyle,
 	createStyle,
 	deleteStyle,
-	discardDraft,
 	getStyle,
 	listStyles,
-	requestRefine,
-	requestSamples,
-	refineMessages,
-	SAMPLE_SUBJECTS,
+	picturePrompt,
 	positiveOnly,
-	samplePrompt,
-	sceneFor,
-	startRevision,
+	requestPictures,
+	requestPrompt,
+	requestScenes,
+	SAMPLE_SUBJECTS,
+	saveSettings,
+	saveText,
+	styleAccess,
 	StyleError,
-	styleJobHandlers,
-	updateDraft
+	styleJobHandlers
 } from './styles';
+import { deleteOtherVersions, deleteVersion, setLocked, useVersion } from './versions';
 
 let db: Db;
 let worker: Worker;
@@ -35,7 +36,7 @@ let image: FakeImageModel;
 let text: FakeTextModel;
 let owner: number;
 let other: number;
-let replies: number;
+let round: number;
 
 const input = {
 	name: 'Noir',
@@ -44,210 +45,268 @@ const input = {
 	model: 'qwen-image' as const
 };
 
+/** Prompts and scenes numbered by round, so each rewrite is recognizable. */
+function reply(messages: ChatMessage[]) {
+	round++;
+	if (messages[0].content.includes('sample scenes')) {
+		return {
+			scenes: {
+				figure: `A ronin standing, round ${round}`,
+				face: `A ronin glaring, round ${round}`,
+				interior: `An empty teahouse, round ${round}, no lamps`,
+				exterior: `An empty rice-field road at dusk, round ${round}, no cars`,
+				action: `A ronin leaping, round ${round}`,
+				bogus: 'x'
+			}
+		};
+	}
+	return { prompt: `heavy ink, deep blacks, round ${round}`, notes: 'Made it darker.' };
+}
+
 beforeEach(async () => {
 	db = openDb(':memory:');
 	process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mm-assets-'));
 	image = new FakeImageModel();
-	replies = 0;
-	text = new FakeTextModel(() => ({
-		prompt: `heavy ink, deep blacks v${++replies}`,
-		scenes: { exterior: `An empty rice-field road at dusk v${replies}, no cars`, bogus: 'x' },
-		notes: 'Made it darker.'
-	}));
+	round = 0;
+	text = new FakeTextModel(reply);
 	worker = new Worker(db, { image, text }, styleJobHandlers);
 	owner = (await createUser(db, 'kenji', 'a long enough password')).id;
 	other = (await createUser(db, 'yuki', 'a long enough password')).id;
 });
 
-describe('style workflow', () => {
-	it('drafts a prompt with the AI, renders samples, and approves', async () => {
+/** A style with its prompt, scenes and all five pictures made. */
+async function readyStyle() {
+	const id = createStyle(db, owner, input);
+	await worker.drain();
+	requestPictures(db, owner, id, 'outdated');
+	await worker.drain();
+	return id;
+}
+
+const current = (item: { versions: { id: number }[]; currentId: number | null }) =>
+	item.versions.find((v) => v.id === item.currentId) as
+		(ReturnType<typeof getStyle>['prompt']['versions'][number] & object) | undefined;
+
+describe('style pipeline', () => {
+	it('writes the prompt and scenes with the AI, then draws the pictures', async () => {
 		const id = createStyle(db, owner, input);
 		await worker.drain();
 
-		let detail = getStyle(db, owner, id);
-		expect(detail.draft?.prompt).toBe('heavy ink, deep blacks v1');
-		expect(detail.draft?.notes).toBe('Made it darker.');
+		let style = getStyle(db, owner, id);
+		expect(current(style.prompt)?.text).toBe('heavy ink, deep blacks, round 1');
+		expect(current(style.prompt)?.notes).toBe('Made it darker.');
 		expect(text.calls[0][1].content).toContain('gritty noir');
+		expect(style.scenes.map((s) => current(s.item)?.text)).toEqual([
+			'A ronin standing, round 2.',
+			'A ronin glaring, round 2.',
+			'An empty teahouse, round 2. No people.',
+			'An empty rice-field road at dusk, round 2. No people.',
+			'A ronin leaping, round 2.'
+		]);
+		expect(style.ready).toBe(false);
 
-		requestSamples(db, owner, detail.draft!.id);
+		expect(requestPictures(db, owner, id, 'outdated')).toBe(SAMPLE_SUBJECTS.length);
 		await worker.drain();
-		detail = getStyle(db, owner, id);
-		expect(detail.samples).toHaveLength(SAMPLE_SUBJECTS.length);
-		expect(detail.samples.every((s) => s.assetHash && s.thumbHash)).toBe(true);
-		expect(image.calls[0].prompt).toBe(samplePrompt(detail.draft!, 'figure'));
-		expect(image.calls.find((c) => c.prompt.includes('rice-field'))).toBeTruthy();
-		expect(image.calls[0].prompt).toMatch(/^Black and white/);
-
-		approveDraft(db, owner, detail.draft!.id);
-		detail = getStyle(db, owner, id);
-		expect(detail.draft).toBeUndefined();
-		expect(detail.active?.number).toBe(1);
-		expect(detail.style.activeVersionId).toBe(detail.active?.id);
+		style = getStyle(db, owner, id);
+		expect(style.ready).toBe(true);
+		expect(style.pictures.every((p) => current(p.item)?.assetHash)).toBe(true);
+		expect(image.calls[0].prompt).toBe(
+			'Black and white manga art, black ink with screentone shading, no color. heavy ink, deep blacks, round 1. A ronin standing, round 2.'
+		);
+		expect(listStyles(db, owner)[0]).toMatchObject({ ready: true });
+		expect(listStyles(db, owner)[0].thumbs).toHaveLength(SAMPLE_SUBJECTS.length);
 	});
 
-	it('refuses approval without a sample set matching the current prompt', async () => {
-		const id = createStyle(db, owner, input);
-		await worker.drain();
-		const draft = getStyle(db, owner, id).draft!;
-		expect(() => approveDraft(db, owner, draft.id)).toThrow(/samples/);
+	it('marks what was made from a changed input out of date, and says why', async () => {
+		const id = await readyStyle();
+		saveText(db, owner, id, 'description', '', 'gritty noir in 1920s Shanghai');
+		let style = getStyle(db, owner, id);
+		expect(current(style.prompt)?.outOfDate).toEqual(['the description']);
+		expect(current(style.scenes[0].item)?.outOfDate).toEqual(['the description']);
+		expect(current(style.pictures[0].item)?.outOfDate).toEqual([]);
 
-		requestSamples(db, owner, draft.id);
+		requestPrompt(db, owner, id);
 		await worker.drain();
-		const edit = { ...input, prompt: draft.prompt, avoid: '', scenes: draft.scenes };
-		updateDraft(db, owner, draft.id, { ...edit, prompt: 'changed' });
-		expect(() => approveDraft(db, owner, draft.id)).toThrow(/samples/);
+		style = getStyle(db, owner, id);
+		expect(current(style.prompt)?.outOfDate).toEqual([]);
+		expect(current(style.pictures[0].item)?.outOfDate).toEqual(['the style prompt']);
 
-		// Editing a scene also makes the samples out of date.
-		requestSamples(db, owner, draft.id);
-		await worker.drain();
-		updateDraft(db, owner, draft.id, { ...edit, prompt: 'changed', scenes: { face: 'A cat.' } });
-		expect(() => approveDraft(db, owner, draft.id)).toThrow(/samples/);
-	});
-
-	it('revises an approved style without changing it until the revision is approved', async () => {
-		const id = createStyle(db, owner, input);
-		await worker.drain();
-		const v1 = getStyle(db, owner, id).draft!;
-		requestSamples(db, owner, v1.id);
-		await worker.drain();
-		approveDraft(db, owner, v1.id);
-
-		const v2 = startRevision(db, owner, id);
-		expect(() => startRevision(db, owner, id)).toThrow(/already has a draft/);
-		requestRefine(db, owner, v2, 'more contrast');
-		await worker.drain();
-		expect(text.calls.at(-1)![1].content).toContain('more contrast');
-
-		let detail = getStyle(db, owner, id);
-		expect(detail.active?.id).toBe(v1.id);
-		expect(detail.draft?.number).toBe(2);
-		expect(detail.draft?.seed).toBe(v1.seed); // same seeds: like-for-like comparison
-
-		requestSamples(db, owner, v2);
-		await worker.drain();
-		approveDraft(db, owner, v2);
-		detail = getStyle(db, owner, id);
-		expect(detail.active?.id).toBe(v2);
-		expect(detail.history.map((v) => [v.number, v.status])).toEqual([
-			[2, 'approved'],
-			[1, 'superseded']
+		saveSettings(db, owner, id, { colorMode: 'grayscale', model: 'z-image' });
+		style = getStyle(db, owner, id);
+		expect(current(style.prompt)?.outOfDate).toEqual(['the color mode']);
+		expect(current(style.pictures[0].item)?.outOfDate).toEqual([
+			'the style prompt',
+			'the color mode',
+			'the image model'
 		]);
 	});
 
-	it('stores the scenes the AI writes and passes on what to keep out', async () => {
-		const id = createStyle(db, owner, input);
-		await worker.drain();
-		let draft = getStyle(db, owner, id).draft!;
-		expect(draft.scenes).toEqual({ exterior: 'An empty rice-field road at dusk v1. No people.' });
+	it('regenerates only unlocked items that are missing or out of date', async () => {
+		const id = await readyStyle();
+		const before = getStyle(db, owner, id);
+		const exterior = before.scenes.find((s) => s.key === 'exterior')!.item;
+		setLocked(db, styleAccess(db, owner, id), exterior.id, true);
+		saveText(db, owner, id, 'avoid', '', 'electric wires');
 
-		updateDraft(db, owner, draft.id, {
-			...input,
-			prompt: draft.prompt,
-			avoid: 'electric wires',
-			scenes: { ...draft.scenes, face: 'A ronin glaring.' }
-		});
-		requestRefine(db, owner, draft.id, '');
+		expect(requestScenes(db, owner, id, 'outdated', 'Set them in winter')).toBe(4);
 		await worker.drain();
 		const sent = text.calls.at(-1)![1].content;
 		expect(sent).toContain('Keep out of every image: electric wires');
-		expect(sent).toContain('- face: A ronin glaring.');
+		expect(sent).toContain('the user asks: Set them in winter');
+		expect(sent).toContain('- exterior: An empty rice-field road'); // kept, for variety
+		expect(sent).not.toContain('"exterior"');
 
-		// The reply's exterior replaces the old one; the user's face scene stays.
-		draft = getStyle(db, owner, id).draft!;
-		expect(draft.scenes).toEqual({
-			exterior: 'An empty rice-field road at dusk v2. No people.',
-			face: 'A ronin glaring.'
-		});
+		const after = getStyle(db, owner, id);
+		const ext = after.scenes.find((s) => s.key === 'exterior')!.item;
+		expect(ext.versions).toHaveLength(1);
+		expect(current(ext)?.outOfDate).toEqual(['the keep-out list']);
+		expect(after.scenes.filter((s) => s.item.versions.length === 2)).toHaveLength(4);
+		expect(requestScenes(db, owner, id, 'outdated')).toBe(0);
+		expect(() => requestScenes(db, owner, id, 'exterior')).toThrow(/locked/);
 
-		const v1 = draft;
-		requestSamples(db, owner, v1.id);
+		// Four pictures now show older scenes; the exterior's is up to date.
+		expect(requestPictures(db, owner, id, 'outdated')).toBe(4);
+	});
+
+	it('keeps every version, and can go back, lock in, and delete', async () => {
+		const id = await readyStyle();
+		requestPictures(db, owner, id, 'figure', { seed: 42, guidance: 'from a low angle' });
 		await worker.drain();
-		approveDraft(db, owner, v1.id);
-		const v2 = getStyle(db, owner, id);
-		startRevision(db, owner, id);
-		expect(getStyle(db, owner, id).draft?.scenes).toEqual(v2.active!.scenes);
-		expect(getStyle(db, owner, id).draft?.avoid).toBe('electric wires');
+		const access = styleAccess(db, owner, id);
+		let figure = getStyle(db, owner, id).pictures[0].item;
+		const [first, second] = figure.versions;
+		expect(figure.versions).toHaveLength(2);
+		expect(figure.currentId).toBe(second.id);
+		expect(second.seed).toBe(42);
+		expect(second.guidance).toBe('from a low angle');
+		expect(image.calls.at(-1)!.prompt).toMatch(/A ronin standing, round 2\. From a low angle\.$/i);
+
+		useVersion(db, access, first.id, { lock: true });
+		figure = getStyle(db, owner, id).pictures[0].item;
+		expect(figure.currentId).toBe(first.id);
+		expect(figure.locked).toBe(true);
+		expect(requestPictures(db, owner, id, 'all')).toBe(SAMPLE_SUBJECTS.length - 1);
+		expect(() => useVersion(db, access, second.id)).toThrow(/locked/);
+		await worker.drain();
+
+		// Deleting the current version falls back to the newest remaining one.
+		deleteVersion(db, access, first.id);
+		figure = getStyle(db, owner, id).pictures[0].item;
+		expect(figure.currentId).toBe(second.id);
+		expect(figure.locked).toBe(true);
+
+		const face = getStyle(db, owner, id).pictures[1].item;
+		expect(face.versions).toHaveLength(2);
+		expect(deleteOtherVersions(db, access, face.id)).toBe(1);
+		expect(getStyle(db, owner, id).pictures[1].item.versions).toHaveLength(1);
 	});
 
-	it('asks the AI for scenes that fit the setting', () => {
-		const [system] = refineMessages(
-			{ description: 'Edo period', colorMode: 'bw', prompt: '', avoid: '', scenes: {} } as never,
-			''
-		);
-		for (const s of SAMPLE_SUBJECTS) expect(system.content).toContain(`"${s.key}"`);
-		expect(system.content).toMatch(/ignores negative prompts/);
+	it('redraws with the same seed unless given a new one', async () => {
+		const id = await readyStyle();
+		const seeds = image.calls.map((c) => c.seed);
+		requestPictures(db, owner, id, 'all');
+		await worker.drain();
+		expect(image.calls.slice(-5).map((c) => c.seed)).toEqual(seeds);
 	});
 
-	it('discarding a revision keeps the active version', async () => {
+	it('saves the user’s own wording as a new version', async () => {
+		const id = await readyStyle();
+		saveText(db, owner, id, 'scene', 'face', 'A geisha smiling.');
+		saveText(db, owner, id, 'scene', 'face', 'A geisha smiling.'); // unchanged: no new version
+		const face = getStyle(db, owner, id).scenes[1].item;
+		expect(face.versions.map((v) => v.origin)).toEqual(['ai', 'user']);
+		expect(current(face)?.outOfDate).toEqual([]);
+		expect(() => saveText(db, owner, id, 'scene', 'face', ' ')).toThrow(StyleError);
+		expect(() => saveText(db, owner, id, 'scene', 'nope', 'x')).toThrow(StyleError);
+	});
+
+	it('writes a missing prompt or scene before drawing a picture', async () => {
 		const id = createStyle(db, owner, input);
+		// Nothing written yet: the prompt and scene jobs are already queued, so
+		// the picture just waits for them.
+		requestPictures(db, owner, id, 'exterior');
 		await worker.drain();
-		const v1 = getStyle(db, owner, id).draft!;
-		expect(() => discardDraft(db, owner, v1.id)).toThrow(/only version/);
-		requestSamples(db, owner, v1.id);
-		await worker.drain();
-		approveDraft(db, owner, v1.id);
-		const v2 = startRevision(db, owner, id);
-		discardDraft(db, owner, v2);
-		expect(getStyle(db, owner, id).draft).toBeUndefined();
-		expect(getStyle(db, owner, id).active?.id).toBe(v1.id);
+		expect(text.calls).toHaveLength(2);
+		const style = getStyle(db, owner, id);
+		expect(current(style.pictures[3].item)?.assetHash).toBeTruthy();
+		expect(style.ready).toBe(true);
 	});
 
-	it('regenerating samples replaces the old set and cancels its jobs', async () => {
-		const id = createStyle(db, owner, input);
-		await worker.drain();
-		const draft = getStyle(db, owner, id).draft!;
-		requestSamples(db, owner, draft.id);
-		requestSamples(db, owner, draft.id, { newSeed: true });
-		const cancelled = db.select().from(jobs).where(eq(jobs.status, 'cancelled')).all();
-		expect(cancelled).toHaveLength(SAMPLE_SUBJECTS.length);
-		await worker.drain();
-		const samples = db.select().from(styleSamples).all();
-		expect(samples).toHaveLength(SAMPLE_SUBJECTS.length);
-		expect(samples[0].seed).not.toBe(draft.seed);
-	});
-
-	it("keeps users out of each other's styles", async () => {
-		const id = createStyle(db, owner, input);
-		expect(() => getStyle(db, other, id)).toThrow(StyleError);
-		expect(() => deleteStyle(db, other, id)).toThrow(StyleError);
-		expect(listStyles(db, other)).toEqual([]);
-		expect(listStyles(db, owner)).toHaveLength(1);
-	});
-
-	it('records a failed AI call on the job and reports it', async () => {
+	it('reports a failed AI call on the item', async () => {
 		text = new FakeTextModel(() => ({ nonsense: true }));
 		worker = new Worker(db, { image, text }, styleJobHandlers);
 		const id = createStyle(db, owner, input);
 		await worker.drain();
-		const detail = getStyle(db, owner, id);
-		expect(detail.draft?.prompt).toBe('');
-		expect(detail.refineError).toBeTruthy();
+		const style = getStyle(db, owner, id);
+		expect(style.prompt.versions).toEqual([]);
+		expect(style.prompt.error).toBeTruthy();
+		expect(style.scenes[0].item.error).toBeTruthy();
+		expect(style.busy).toBe(false);
+	});
+
+	it('copies a ready style, current versions and locks only', async () => {
+		const id = await readyStyle();
+		const access = styleAccess(db, owner, id);
+		const prompt = getStyle(db, owner, id).prompt;
+		setLocked(db, access, prompt.id, true);
+		requestPictures(db, owner, id, 'face', { seed: 7 });
+		await worker.drain();
+
+		const copyId = copyStyle(db, owner, id, 'Sequel');
+		const copy = getStyle(db, owner, copyId);
+		expect(copy.ready).toBe(true);
+		expect(copy.prompt.locked).toBe(true);
+		expect(copy.pictures[1].item.versions).toHaveLength(1);
+		expect(current(copy.pictures[1].item)?.seed).toBe(7);
+		deleteStyle(db, owner, id);
+		expect(getStyle(db, owner, copyId).ready).toBe(true);
+	});
+
+	it("keeps users out of each other's styles", async () => {
+		const id = await readyStyle();
+		const mine = getStyle(db, owner, id);
+		const theirs = createStyle(db, other, { ...input, name: 'Theirs' });
+		expect(() => getStyle(db, other, id)).toThrow(StyleError);
+		expect(() => deleteStyle(db, other, id)).toThrow(StyleError);
+		expect(() => styleAccess(db, other, id)).toThrow(StyleError);
+		// Their access to their own style doesn't reach items of mine.
+		const access = styleAccess(db, other, theirs);
+		expect(() => deleteVersion(db, access, mine.prompt.currentId!)).toThrow();
+		expect(() => setLocked(db, access, mine.prompt.id, true)).toThrow();
+		expect(listStyles(db, other)).toHaveLength(1);
+	});
+
+	it('cancels unfinished work when the style is deleted', async () => {
+		const id = createStyle(db, owner, input);
+		deleteStyle(db, owner, id);
+		const statuses = db.select({ status: jobs.status }).from(jobs).all();
+		expect(statuses.map((j) => j.status)).toEqual(['canceled', 'canceled']);
+		await worker.drain();
+		expect(text.calls).toHaveLength(0);
 	});
 });
 
 describe('Worker', () => {
 	it('re-queues jobs left running by a restart', async () => {
 		const id = createStyle(db, owner, input);
-		db.update(jobs).set({ status: 'running' }).run();
+		db.update(jobs).set({ status: 'running' }).where(eq(jobs.id, 1)).run();
 		worker.recover();
 		expect(db.select().from(jobs).get()?.status).toBe('queued');
 		await worker.drain();
-		expect(getStyle(db, owner, id).draft?.prompt).toBe('heavy ink, deep blacks v1');
+		expect(current(getStyle(db, owner, id).prompt)?.text).toBe('heavy ink, deep blacks, round 1');
 	});
 });
 
 describe('prompt compilation', () => {
-	it('separates style and subject into sentences', () => {
+	it('separates style, subject and guidance into sentences', () => {
 		expect(compilePrompt({ colorMode: 'color', prompt: 'soft pastels' }, 'A cat.')).toBe(
 			'Full-color manga art. soft pastels. A cat.'
 		);
-	});
-
-	it("uses the AI's scene for a subject, falling back to the default", () => {
-		const version = { colorMode: 'bw' as const, prompt: 'ink', scenes: { face: 'A samurai.' } };
-		expect(sceneFor(version, 'face')).toBe('A samurai.');
-		expect(sceneFor(version, 'figure')).toBe(SAMPLE_SUBJECTS[0].prompt);
-		expect(samplePrompt(version, 'face')).toMatch(/ink\. A samurai\.$/);
+		expect(
+			picturePrompt({ colorMode: 'grayscale', prompt: 'ink' }, 'A cat', 'make it smaller')
+		).toBe(
+			'Grayscale manga art with ink outlines and soft gray shading, no color. ink. A cat. make it smaller.'
+		);
 	});
 
 	it('strips negated clauses from AI text', () => {
@@ -258,11 +317,5 @@ describe('prompt compilation', () => {
 			positiveOnly('A dirt path lined with houses, no people, and no power lines. Not modern.')
 		).toBe('A dirt path lined with houses.');
 		expect(positiveOnly('Nostalgic notes, nobody home')).toBe('Nostalgic notes, nobody home');
-	});
-
-	it('keeps default location scenes empty of people', () => {
-		for (const key of ['interior', 'exterior']) {
-			expect(sceneFor({ scenes: {} }, key)).toMatch(/empty.*No people\.$/i);
-		}
 	});
 });

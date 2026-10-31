@@ -11,15 +11,16 @@ async function newManga(page: Page, title: string) {
 	await expect(page.getByRole('heading', { name: 'Style', level: 1 })).toBeVisible();
 }
 
-/** Start a style, let the (fake) AI draft it, sample it and approve it. */
-async function approveStyle(page: Page) {
+/** Start a style; the (fake) AI writes the prompt and scenes, then draw the samples. */
+async function readyStyle(page: Page) {
 	await page.getByLabel('Describe the look').fill('Edo-period ink, villages, kimono');
 	await page.getByRole('button', { name: 'Start the style' }).click();
-	await expect(page.getByLabel('Style prompt')).not.toHaveValue('');
-	await page.getByRole('button', { name: 'Generate samples' }).click();
-	await expect(page.getByRole('button', { name: 'Approve this style' })).toBeEnabled();
-	await page.getByRole('button', { name: 'Approve this style' }).click();
-	await expect(page.getByText('v1 approved')).toBeVisible();
+	await expect(page.getByRole('textbox', { name: 'Style prompt', exact: true })).not.toHaveValue(
+		''
+	);
+	await page.getByRole('button', { name: /Draw missing and out-of-date pictures/ }).click();
+	await expect(page.getByRole('img', { name: 'Action sample' })).toBeVisible();
+	await expect(page.getByText('ready', { exact: true }).first()).toBeVisible();
 }
 
 test('creates a manga and walks its steps', async ({ signedIn: page }) => {
@@ -43,20 +44,20 @@ test('creates a manga and walks its steps', async ({ signedIn: page }) => {
 	await expect(page.getByLabel('Left to right')).toBeChecked();
 });
 
-test('approves a style and shows it as the cover', async ({ signedIn: page }) => {
+test('makes a style ready and shows it as the cover', async ({ signedIn: page }) => {
 	await newManga(page, 'Cover Test');
-	await approveStyle(page);
-	await expect(page.getByRole('navigation', { name: 'Steps' }).getByText('approved')).toBeVisible();
+	await readyStyle(page);
+	await expect(page.getByRole('navigation', { name: 'Steps' }).getByText('ready')).toBeVisible();
 
 	await page.getByRole('link', { name: 'My manga' }).click();
 	const card = page.getByRole('link', { name: /Cover Test/ });
-	await expect(card.getByText('Style approved')).toBeVisible();
+	await expect(card.getByText('Style ready')).toBeVisible();
 	await expect(card.locator('img')).toHaveJSProperty('complete', true);
 });
 
 test("reuses another manga's style", async ({ signedIn: page }) => {
 	await newManga(page, 'Original');
-	await approveStyle(page);
+	await readyStyle(page);
 	await newManga(page, 'Sequel');
 	await page
 		.getByRole('listitem')
@@ -64,7 +65,7 @@ test("reuses another manga's style", async ({ signedIn: page }) => {
 		.getByRole('button', { name: 'Use this style' })
 		.click();
 	await expect(page.getByText('Style copied.')).toBeVisible();
-	await expect(page.getByText('v1 approved')).toBeVisible();
+	await expect(page.getByRole('img', { name: 'Figure sample' })).toBeVisible();
 });
 
 test('deletes a manga', async ({ signedIn: page }) => {

@@ -15,9 +15,9 @@ once the model is loaded (13 s for the first).
 
 ## Range — Qwen-Image (top) and Z-Image Turbo (bottom)
 
-Top row, Qwen-Image with five different style descriptions: shōjo watercolour,
-gritty cross-hatched seinen, colour chibi, a black-and-red limited palette, and
-painted greyscale. Bottom row, Z-Image Turbo with the black-and-white prompt.
+Top row, Qwen-Image with five different style descriptions: shōjo watercolor,
+gritty cross-hatched seinen, color chibi, a black-and-red limited palette, and
+painted grayscale. Bottom row, Z-Image Turbo with the black-and-white prompt.
 
 ![Style range](images/style-eval-range.jpg)
 

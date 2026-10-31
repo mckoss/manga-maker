@@ -31,8 +31,8 @@ title and a cover thumbnail (the style's figure sample until there is a real
 cover). Opening a manga shows a sidebar of its steps: **Style, Characters,
 Locations, Plot, Script, Panels, Pages**. The style, characters and locations
 belong to that manga; to reuse one in another manga the user copies it, so
-changing it in one comic never silently changes another. Once approved, each
-carries canonical reference images that every later generation draws on.
+changing it in one comic never silently changes another. Each carries
+reference images that every later generation draws on.
 
 Each manga starts with a style, then moves through the creative phases. Each phase produces structured data
 (not just prose), and later phases build on it. Every phase has a **mentor**:
@@ -41,29 +41,29 @@ runs a checklist review before the user advances.
 
 ### 0. Style
 
-The drawing style is itself an AI-assisted, approvable artifact, chosen
+The drawing style is itself an AI-assisted, versioned artifact, settled
 before any character is drawn so every reference sheet is made in it.
 
-- Settings: **colour** (black-and-white with screentones, greyscale, limited
-  palette, full colour), line weight and texture, shading approach, panel
+- Settings: **color** (black-and-white with screentones, grayscale, limited
+  palette, full color), line weight and texture, shading approach, panel
   border and gutter look, genre conventions (shōnen, shōjo, chibi, …).
 - The mentor turns a plain-language description ("gritty 90s seinen, heavy
   blacks") into a structured style spec plus a prompt fragment.
 - **Style sheet**: a fixed set of test images — a neutral figure, a face
   close-up, an interior, an exterior, an action shot — generated in the style.
-  The user iterates until satisfied and approves it; the approved sheet is the
-  style reference for all later generations.
+  The user iterates until satisfied, locking what they like; the current
+  versions are the style reference for all later generations.
 - **Reading direction** (right-to-left or left-to-right) is a per-project
   setting next to the style; it drives page layout, panel order and bubble
   order, not image generation.
-- A new manga can start from a copy of another manga's approved style.
+- A new manga can start from a copy of another manga's style.
 
 ### 1. Characters
 
 - Interview-style creation: role in the story, want vs. need, flaw,
   personality, relationships, speech style.
 - Structured **visual spec**: age, build, hair, eyes, face, signature outfit,
-  props, colour notes. The spec — not free text — drives every image prompt.
+  props, color notes. The spec — not free text — drives every image prompt.
 - **Character sheet**: generate candidates, user picks one, then generate a
   turnaround (front / three-quarter / side) and an expression set from it.
   The approved sheet becomes the canonical reference for all later images.
@@ -150,7 +150,7 @@ Models, all already proven on the reference host (warm timings, M5 Ultra):
 
 Milestone 1 includes a **manga style evaluation** rather than a runtime
 spike: can these models produce clean black-and-white manga line art and
-screentones (and each colour mode) on demand, how well does Qwen-Image-Edit hold a
+screentones (and each color mode) on demand, how well does Qwen-Image-Edit hold a
 character's identity across poses and shots, and is 2511 or a manga style
 LoRA worth adding?
 
@@ -169,22 +169,22 @@ jobs against a memory budget, prefers mid-size LLMs (Qwen 3.8 27B, Gemma 4
 
 ## Data model (first cut)
 
-| Entity          | Key fields                                                                           |
-| --------------- | ------------------------------------------------------------------------------------ |
-| user            | username (unique), password hash (scrypt), created                                   |
-| session         | token hash, user, expires                                                            |
-| style           | owner, name, colour mode, spec (JSON), prompt fragment, model settings, sheet assets |
-| manga           | owner, title, logline, reading direction, style (its own copy)                       |
-| character       | owner, name, role, profile (JSON), visual spec (JSON)                                |
-| location        | owner, name, description, mood                                                       |
-| story           | project, structure template, beats (ordered)                                         |
-| page / panel    | order, layout slot, shot, location, characters, action, text blocks                  |
-| reference_sheet | (character or location) × style → approved reference assets                          |
-| project_cast    | project ↔ character / location links (library reuse)                                 |
-| asset           | sha256, mime, size, dimensions — file at `data/assets/ab/cd/<sha256>`                |
-| generation      | target (sheet/panel/…), compiled prompt, refs, seed, model, status                   |
-| job             | kind, payload, status, progress, error, priority, timestamps                         |
-| mentor_thread   | project, phase, messages                                                             |
+| Entity          | Key fields                                                                          |
+| --------------- | ----------------------------------------------------------------------------------- |
+| user            | username (unique), password hash (scrypt), created                                  |
+| session         | token hash, user, expires                                                           |
+| style           | owner, name, color mode, spec (JSON), prompt fragment, model settings, sheet assets |
+| manga           | owner, title, logline, reading direction, style (its own copy)                      |
+| character       | owner, name, role, profile (JSON), visual spec (JSON)                               |
+| location        | owner, name, description, mood                                                      |
+| story           | project, structure template, beats (ordered)                                        |
+| page / panel    | order, layout slot, shot, location, characters, action, text blocks                 |
+| reference_sheet | (character or location) × style → approved reference assets                         |
+| project_cast    | project ↔ character / location links (library reuse)                                |
+| asset           | sha256, mime, size, dimensions — file at `data/assets/ab/cd/<sha256>`               |
+| generation      | target (sheet/panel/…), compiled prompt, refs, seed, model, status                  |
+| job             | kind, payload, status, progress, error, priority, timestamps                        |
+| mentor_thread   | project, phase, messages                                                            |
 
 ## Accounts and security
 
@@ -252,20 +252,40 @@ output, validated before saving.
 
 The GPU is one shared resource. Requests enqueue a `job` row; one in-process
 worker runs jobs one at a time, oldest first. Jobs left running by a restart
-are queued again, and cancelled jobs are aborted (ComfyUI prompts are removed
+are queued again, and canceled jobs are aborted (ComfyUI prompts are removed
 from its queue or interrupted). Pages poll every two seconds while their jobs
 run; with one or two users that is simpler than server-sent events.
 
+### Versioned items
+
+Anything the user and the AI make in rounds is a versioned **item**
+(`items` and `versions` tables, `src/lib/server/versions.ts`), scoped to what
+it belongs to ("style:3"). Every round is kept as a version. The newest is
+**current** unless the user goes back to an older one; a **locked** item is
+never regenerated, singly or in bulk, until unlocked. Each version records
+the **inputs** it was made from, so an item whose inputs have since changed
+shows **Out of date** with the reason. Versions can be deleted one at a time,
+or all but the current one. A regeneration can carry the user's **guidance**
+for that one round.
+
 ### Styles as built
 
-Each style has numbered versions: at most one **draft**, one **approved**
-version in use, and **superseded** history. The AI art director drafts the
-style prompt from the user's description and revises it from their feedback;
-the user can also edit it directly. Samples render five fixed subjects
-(figure, face, interior, exterior, action) with seeds kept across versions, so
-a revision's samples sit under the in-use version's for comparison. Approval
-requires a full sample set made from the current prompt. See
-`docs/style-evaluation.md`.
+A style is a pipeline of items, shown in the order they are made:
+
+- the user's **description** and **keep-out list** (versioned) and the color
+  mode and image model (settings);
+- the **style prompt**, written by the AI art director from the description,
+  color mode and keep-out list, with a note explaining it;
+- five **sample scenes** (figure, face, interior, exterior, action), written
+  by the AI from the description and keep-out list to fit the setting and era;
+- five **sample pictures**, drawn from the prompt and each scene; a redraw
+  keeps the picture's seed (shown and editable) so differences come from the
+  prompt.
+
+Each item can be regenerated alone, and each stage can regenerate whatever is
+missing or out of date. The rest of the manga is drawn with the current style
+once it has at least one sample picture; there is no separate approval step.
+See `docs/style-evaluation.md`.
 
 ## Hosting and exposure
 

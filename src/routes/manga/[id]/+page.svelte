@@ -7,7 +7,7 @@
 	let { data, form }: PageProps = $props();
 
 	let id = $derived(String(data.manga.id));
-	let styleDone = $derived(data.manga.styleStatus === 'approved');
+	let styleDone = $derived(data.manga.styleStatus === 'ready');
 </script>
 
 <h1>{data.manga.title}</h1>

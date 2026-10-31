@@ -18,10 +18,10 @@
 	usually needs two to five characters.
 </p>
 
-{#if !data.styleApproved}
+{#if !data.styleReady}
 	<p class="notice">
 		You can write profiles now, but pictures are drawn in your manga's style:
-		<a href={resolve('/manga/[id]/style', { id })}>approve a style</a> first.
+		<a href={resolve('/manga/[id]/style', { id })}>draw a sample picture of the style</a> first.
 	</p>
 {/if}
 

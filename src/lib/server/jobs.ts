@@ -23,11 +23,11 @@ export function enqueue(db: Db, userId: number, kind: string, payload: unknown):
 	return job;
 }
 
-/** Mark queued jobs cancelled; a running one is aborted by the worker. */
+/** Mark queued jobs canceled; a running one is aborted by the worker. */
 export function cancelJobs(db: Db, ids: number[]): void {
 	if (!ids.length) return;
 	db.update(jobs)
-		.set({ status: 'cancelled', finishedAt: new Date() })
+		.set({ status: 'canceled', finishedAt: new Date() })
 		.where(and(inArray(jobs.id, ids), inArray(jobs.status, ['queued', 'running'])))
 		.run();
 }
@@ -82,8 +82,8 @@ export class Worker {
 		while (!this.stopped && (await this.runNext()));
 	}
 
-	/** Abort the running job if it has been cancelled in the database. */
-	private checkCancelled(): void {
+	/** Abort the running job if it has been canceled in the database. */
+	private checkCanceled(): void {
 		if (!this.current) return;
 		const row = this.db
 			.select({ status: jobs.status })
@@ -106,7 +106,7 @@ export class Worker {
 		const handler = this.handlers[job.kind];
 		const abort = new AbortController();
 		this.current = { id: job.id, abort };
-		const watch = setInterval(() => this.checkCancelled(), 1000);
+		const watch = setInterval(() => this.checkCanceled(), 1000);
 		this.db
 			.update(jobs)
 			.set({ status: 'running', startedAt: new Date() })
@@ -117,7 +117,7 @@ export class Worker {
 			await handler(job, { db: this.db, ai: this.ai, signal: abort.signal });
 			this.finish(job.id, 'done');
 		} catch (e) {
-			if (abort.signal.aborted) this.finish(job.id, 'cancelled');
+			if (abort.signal.aborted) this.finish(job.id, 'canceled');
 			else this.finish(job.id, 'failed', (e as Error).message);
 		} finally {
 			clearInterval(watch);
@@ -126,7 +126,7 @@ export class Worker {
 		return true;
 	}
 
-	private finish(id: number, status: 'done' | 'failed' | 'cancelled', error?: string): void {
+	private finish(id: number, status: 'done' | 'failed' | 'canceled', error?: string): void {
 		this.db
 			.update(jobs)
 			.set({ status, error: error ?? null, finishedAt: new Date() })

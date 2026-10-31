@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
@@ -28,7 +28,7 @@ export const assets = sqliteTable('assets', {
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
 
 /** Background work (AI calls), run one at a time by the worker. */
 export const jobs = sqliteTable('jobs', {
@@ -47,68 +47,84 @@ export const jobs = sqliteTable('jobs', {
 
 export type Job = typeof jobs.$inferSelect;
 
-/** A drawing style in a user's library. Only approved versions are used for work. */
+export type ColorMode = 'bw' | 'grayscale' | 'limited' | 'color';
+
+/**
+ * A manga's drawing style. Its description, prompt, scenes and sample
+ * pictures are versioned items (see `items`) scoped "style:<id>".
+ */
 export const styles = sqliteTable('styles', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	ownerId: integer('owner_id')
 		.notNull()
 		.references(() => users.id, { onDelete: 'cascade' }),
 	name: text('name').notNull(),
-	/** The approved version in use; null until the first approval. */
-	activeVersionId: integer('active_version_id'),
+	colorMode: text('color_mode').$type<ColorMode>().notNull().default('bw'),
+	model: text('model').notNull().default('qwen-image'),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 
-export type ColorMode = 'bw' | 'greyscale' | 'limited' | 'color';
-export type StyleVersionStatus = 'draft' | 'approved' | 'superseded' | 'discarded';
+export type Style = typeof styles.$inferSelect;
 
-export const styleVersions = sqliteTable('style_versions', {
+/**
+ * Something made in rounds that keeps every round: a style prompt, a sample
+ * scene, a sample picture. One item per slot; its versions are the rounds.
+ */
+export const items = sqliteTable(
+	'items',
+	{
+		id: integer('id').primaryKey({ autoIncrement: true }),
+		ownerId: integer('owner_id')
+			.notNull()
+			.references(() => users.id, { onDelete: 'cascade' }),
+		/** What the item belongs to, as "<table>:<id>", for example "style:3". */
+		scope: text('scope').notNull(),
+		/** What it is within the scope, for example "prompt", "scene" or "picture". */
+		kind: text('kind').notNull(),
+		/** Which one, when a scope has several of a kind (for example "exterior"). */
+		key: text('key').notNull().default(''),
+		/** The version in use: the newest, unless the user went back to an older one. */
+		currentVersionId: integer('current_version_id'),
+		/** Fixed by the user: never regenerated until unlocked. */
+		locked: integer('locked', { mode: 'boolean' }).notNull().default(false),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
+	},
+	(t) => [uniqueIndex('items_slot').on(t.scope, t.kind, t.key)]
+);
+
+export type Item = typeof items.$inferSelect;
+
+/** ai: generated; user: typed or edited by the user; import: from before versioning. */
+export type VersionOrigin = 'ai' | 'user' | 'import';
+/** pending: a job is making it; ready: made. A failed job leaves it pending (see jobId). */
+export type VersionStatus = 'pending' | 'ready';
+
+export const versions = sqliteTable('versions', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	styleId: integer('style_id')
+	itemId: integer('item_id')
 		.notNull()
-		.references(() => styles.id, { onDelete: 'cascade' }),
-	number: integer('number').notNull(),
-	status: text('status').$type<StyleVersionStatus>().notNull(),
-	/** The user's plain-language description of the look they want. */
-	description: text('description').notNull(),
-	colorMode: text('color_mode').$type<ColorMode>().notNull(),
-	/** Style fragment prepended to every image prompt (subject excluded). */
-	prompt: text('prompt').notNull(),
-	/**
-	 * Things the user wants kept out of every image. The image models ignore
-	 * negative prompts, so the AI works these into the prompt and scenes.
-	 */
-	avoid: text('negative_prompt').notNull().default(''),
-	/** Sample scene per subject key, written by the AI to suit the style's setting. */
-	scenes: text('scenes', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
-	model: text('model').notNull(),
-	/** Sample seeds derive from this, so versions can be compared like for like. */
-	seed: integer('seed').notNull(),
-	/** The mentor's explanation of the latest prompt revision. */
-	notes: text('notes').notNull().default(''),
-	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-	approvedAt: integer('approved_at', { mode: 'timestamp_ms' })
-});
-
-export type StyleVersion = typeof styleVersions.$inferSelect;
-
-/** One generated test image for a style version. */
-export const styleSamples = sqliteTable('style_samples', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	versionId: integer('version_id')
-		.notNull()
-		.references(() => styleVersions.id, { onDelete: 'cascade' }),
-	subject: text('subject').notNull(),
-	/** The full prompt sent to the model, to detect samples made from an older prompt. */
-	prompt: text('prompt').notNull(),
-	seed: integer('seed').notNull(),
-	jobId: integer('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+		.references(() => items.id, { onDelete: 'cascade' }),
+	status: text('status').$type<VersionStatus>().notNull(),
+	origin: text('origin').$type<VersionOrigin>().notNull(),
+	/** The content of a text item; for a picture, the full prompt it was drawn from. */
+	text: text('text').notNull().default(''),
 	assetHash: text('asset_hash').references(() => assets.hash),
 	thumbHash: text('thumb_hash').references(() => assets.hash),
+	seed: integer('seed'),
+	/**
+	 * What it was made from (input name to value), to tell when it is out of
+	 * date. Inputs that could not be recorded are missing.
+	 */
+	inputs: text('inputs', { mode: 'json' }).$type<Record<string, string>>().notNull().default({}),
+	/** The AI's explanation of what it made and why. */
+	notes: text('notes').notNull().default(''),
+	/** The user's instructions for this one round ("make her look over her shoulder"). */
+	guidance: text('guidance').notNull().default(''),
+	jobId: integer('job_id').references(() => jobs.id, { onDelete: 'set null' }),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 
-export type StyleSample = typeof styleSamples.$inferSelect;
+export type Version = typeof versions.$inferSelect;
 
 export type ReadingDirection = 'rtl' | 'ltr';
 
@@ -178,8 +194,8 @@ export const characterImages = sqliteTable('character_images', {
 	sourceImageId: integer('source_image_id'),
 	prompt: text('prompt').notNull(),
 	seed: integer('seed').notNull(),
-	/** The style version it was drawn in, to flag pictures from an older style. */
-	styleVersionId: integer('style_version_id').references(() => styleVersions.id, {
+	/** The style prompt version it was drawn in, to flag pictures from an older style. */
+	stylePromptVersionId: integer('style_prompt_version_id').references(() => versions.id, {
 		onDelete: 'set null'
 	}),
 	jobId: integer('job_id').references(() => jobs.id, { onDelete: 'set null' }),

@@ -59,7 +59,24 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [x] Fix: the server now exits on SIGTERM (the job worker's timer kept it
       alive)
 
+## Milestone 2c: versioned style pipeline
+
+- [x] Shared versioned items: every version kept; current, go back, lock in,
+      delete one or all older; inputs recorded to flag out-of-date items
+- [x] Style page as a pipeline: description and keep-out list → style prompt
+      (with the art director's note) → sample scenes → sample pictures
+- [x] Per-item regenerate with guidance; per-stage "missing and out of date"
+      and "all unlocked"; locked items are skipped
+- [x] Pictures show their seed; redraw keeps it unless changed (🎲 for new)
+- [x] No style approval: characters open once the style has a sample picture
+- [x] Character sheet: redraw one view with guidance
+- [x] Existing styles migrated with their history; American spelling
+      throughout
+
 ## Next
+
+- [ ] The AI asks questions when the description is thin (v0.9)
+- [ ] Characters on the versioned items layer (v0.10)
 
 - [ ] Locations (milestone 3)
 - [ ] AI critique of samples with a vision model (Gemma 4)

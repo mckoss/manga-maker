@@ -7,6 +7,7 @@
 	--accent: #2754c5;
 	--danger: #b3261e;
 	--ok: #1e7b34;
+	--warn: #9a5b00;
 	color-scheme: light dark;
 }
 
@@ -20,6 +21,7 @@
 		--accent: #7fa2ff;
 		--danger: #ff7b72;
 		--ok: #56d364;
+		--warn: #e3a33b;
 	}
 }
 
@@ -215,6 +217,10 @@ label.check {
 .badge.muted {
 	background: var(--line);
 	color: var(--fg);
+}
+.badge.warn {
+	background: var(--warn);
+	color: var(--bg);
 }
 
 section {

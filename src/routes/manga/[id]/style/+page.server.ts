@@ -10,22 +10,28 @@ import {
 	startStyle
 } from '#lib/server/mangas.js';
 import {
-	approveDraft,
 	COLOR_MODES,
-	discardDraft,
 	getStyle,
 	isColorMode,
 	isImageModel,
-	readyToApprove,
-	requestRefine,
-	requestSamples,
-	SAMPLE_SUBJECTS,
-	samplePrompt,
-	sceneFor,
-	startRevision,
+	isSubject,
+	requestPictures,
+	requestPrompt,
+	requestScenes,
+	isTextKind,
+	saveSettings,
+	saveText,
+	styleAccess,
 	StyleError,
-	updateDraft
+	type Which
 } from '#lib/server/styles.js';
+import {
+	deleteOtherVersions,
+	deleteVersion,
+	setLocked,
+	useVersion,
+	VersionError
+} from '#lib/server/versions.js';
 import type { Actions, PageServerLoad } from './$types';
 
 const colorModes = Object.entries(COLOR_MODES).map(([value, m]) => ({ value, label: m.label }));
@@ -35,51 +41,24 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 	const { manga } = await parent();
 	const db = getDb();
 	const ownerId = locals.user!.id;
-	if (!manga.styleId) {
-		return {
-			editor: null,
-			colorModes,
-			models,
-			reusable: reusableStyles(db, ownerId, Number(params.id))
-		};
-	}
-	const detail = getStyle(db, ownerId, manga.styleId);
-	const { draft, samples } = detail;
-	/** Samples for a version in subject order, flagging ones made from an older prompt. */
-	const sampleRow = (versionId: number | undefined) =>
-		SAMPLE_SUBJECTS.map((subject) => {
-			const sample = samples.find((s) => s.versionId === versionId && s.subject === subject.key);
-			const version = versionId === draft?.id ? draft : undefined;
-			return {
-				subject: subject.key,
-				label: subject.label,
-				sample: sample ?? null,
-				stale: Boolean(sample && version && sample.prompt !== samplePrompt(version, subject.key))
-			};
-		});
-	const editor = {
-		...detail,
+	return {
+		editor: manga.styleId ? getStyle(db, ownerId, manga.styleId) : null,
 		colorModes,
 		models,
-		activeSamples: sampleRow(detail.active?.id),
-		draftSamples: sampleRow(draft?.id),
-		draftScenes: draft
-			? SAMPLE_SUBJECTS.map((s) => ({ key: s.key, label: s.label, scene: sceneFor(draft, s.key) }))
-			: [],
-		historySamples: Object.fromEntries(detail.history.map((v) => [v.id, sampleRow(v.id)])),
-		canApprove: draft ? readyToApprove(draft, samples) : false,
-		colorLabels: Object.fromEntries(Object.entries(COLOR_MODES).map(([k, m]) => [k, m.label]))
+		reusable: manga.styleId ? [] : reusableStyles(db, ownerId, Number(params.id))
 	};
-	return { editor, colorModes, models, reusable: [] };
 };
 
-/** Run a style command; StyleErrors become a form failure shown on the page. */
-async function run(fn: () => unknown, message?: string) {
+/** Run a command; expected errors become a form failure shown on the page. */
+async function run(fn: () => unknown, message?: string | ((result: unknown) => string)) {
 	try {
-		await fn();
-		return message ? { message } : undefined;
+		const result = await fn();
+		const text = typeof message === 'function' ? message(result) : message;
+		return text ? { message: text } : undefined;
 	} catch (e) {
-		if (e instanceof StyleError || e instanceof MangaError) return fail(400, { error: e.message });
+		if (e instanceof StyleError || e instanceof MangaError || e instanceof VersionError) {
+			return fail(400, { error: e.message });
+		}
 		throw e;
 	}
 }
@@ -87,13 +66,29 @@ async function run(fn: () => unknown, message?: string) {
 const num = (form: FormData, key: string) => Number(form.get(key));
 const str = (form: FormData, key: string) => String(form.get(key) ?? '');
 
+function which(form: FormData): Which {
+	const value = str(form, 'which');
+	if (value === 'all' || value === 'outdated' || isSubject(value)) return value;
+	throw new StyleError('Choose what to regenerate.');
+}
+
+/** The style of the manga in the URL, and access to its items. */
+function access(locals: App.Locals, params: { id: string }) {
+	const db = getDb();
+	const styleId = mangaStyleId(db, locals.user!.id, Number(params.id));
+	return { db, styleId, access: styleAccess(db, locals.user!.id, styleId) };
+}
+
+const count = (n: unknown, what: string) =>
+	n === 0 ? `Nothing to do: every unlocked ${what} is up to date.` : '';
+
 export const actions: Actions = {
 	start: async ({ request, locals, params }) => {
 		const form = await request.formData();
 		const colorMode = str(form, 'colorMode');
 		const model = str(form, 'model');
 		if (!isColorMode(colorMode) || !isImageModel(model)) {
-			return fail(400, { error: 'Choose a colour mode and a model.' });
+			return fail(400, { error: 'Choose a color mode and a model.' });
 		}
 		return run(() =>
 			startStyle(getDb(), locals.user!.id, Number(params.id), {
@@ -107,66 +102,98 @@ export const actions: Actions = {
 		const form = await request.formData();
 		return run(
 			() => reuseStyle(getDb(), locals.user!.id, Number(params.id), num(form, 'styleId')),
-			'Style copied. It is approved and ready to use; revise it if you like.'
+			'Style copied. Change anything you like; it only affects this manga.'
 		);
 	},
-	save: async ({ request, locals }) => {
+	saveSettings: async ({ request, locals, params }) => {
 		const form = await request.formData();
 		const colorMode = str(form, 'colorMode');
 		const model = str(form, 'model');
 		if (!isColorMode(colorMode) || !isImageModel(model)) {
-			return fail(400, { error: 'Choose a colour mode and a model.' });
+			return fail(400, { error: 'Choose a color mode and a model.' });
 		}
-		return run(
-			() =>
-				updateDraft(getDb(), locals.user!.id, num(form, 'versionId'), {
-					description: str(form, 'description'),
-					prompt: str(form, 'prompt'),
-					avoid: str(form, 'avoid'),
-					scenes: Object.fromEntries(
-						SAMPLE_SUBJECTS.map((s) => [s.key, str(form, `scene_${s.key}`)])
-					),
-					colorMode,
-					model
-				}),
-			'Draft saved.'
-		);
-	},
-	refine: async ({ request, locals }) => {
-		const form = await request.formData();
-		return run(() =>
-			requestRefine(getDb(), locals.user!.id, num(form, 'versionId'), str(form, 'feedback'))
-		);
-	},
-	samples: async ({ request, locals }) => {
-		const form = await request.formData();
-		return run(() =>
-			requestSamples(getDb(), locals.user!.id, num(form, 'versionId'), {
-				newSeed: form.get('newSeed') === 'on'
-			})
-		);
-	},
-	approve: async ({ request, locals }) => {
-		const form = await request.formData();
-		return run(
-			() => approveDraft(getDb(), locals.user!.id, num(form, 'versionId')),
-			'Approved. This is now the style used for new work.'
-		);
-	},
-	revise: async ({ request, locals, params }) => {
-		const form = await request.formData();
-		const from = form.get('fromVersionId');
 		return run(() => {
-			const db = getDb();
-			const styleId = mangaStyleId(db, locals.user!.id, Number(params.id));
-			startRevision(db, locals.user!.id, styleId, from ? Number(from) : undefined);
+			const { db, styleId } = access(locals, params);
+			saveSettings(db, locals.user!.id, styleId, { colorMode, model });
+		}, 'Saved.');
+	},
+	saveText: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		const kind = str(form, 'kind');
+		if (!isTextKind(kind)) return fail(400, { error: 'Unknown item.' });
+		return run(() => {
+			const { db, styleId } = access(locals, params);
+			saveText(db, locals.user!.id, styleId, kind, str(form, 'key'), str(form, 'text'));
+		}, 'Saved.');
+	},
+	writePrompt: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		return run(() => {
+			const { db, styleId } = access(locals, params);
+			requestPrompt(db, locals.user!.id, styleId, str(form, 'guidance'));
 		});
 	},
-	discard: async ({ request, locals }) => {
+	writeScenes: async ({ request, locals, params }) => {
 		const form = await request.formData();
 		return run(
-			() => discardDraft(getDb(), locals.user!.id, num(form, 'versionId')),
-			'Draft discarded.'
+			() => {
+				const { db, styleId } = access(locals, params);
+				return requestScenes(db, locals.user!.id, styleId, which(form), str(form, 'guidance'));
+			},
+			(n) => count(n, 'scene')
+		);
+	},
+	drawPictures: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		const seed = form.get('seed') ? Number(form.get('seed')) : undefined;
+		return run(
+			() => {
+				const { db, styleId } = access(locals, params);
+				if (seed !== undefined && !Number.isSafeInteger(seed)) {
+					throw new StyleError('The seed must be a whole number.');
+				}
+				return requestPictures(db, locals.user!.id, styleId, which(form), {
+					seed,
+					guidance: str(form, 'guidance')
+				});
+			},
+			(n) => count(n, 'picture')
+		);
+	},
+	useVersion: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		const lock = form.get('lock') === 'on';
+		return run(
+			() => {
+				const { db, access: a } = access(locals, params);
+				useVersion(db, a, num(form, 'versionId'), { lock });
+			},
+			lock ? 'Using that version, locked.' : 'Using that version.'
+		);
+	},
+	lock: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		const locked = form.get('locked') === 'on';
+		return run(() => {
+			const { db, access: a } = access(locals, params);
+			setLocked(db, a, num(form, 'itemId'), locked);
+		});
+	},
+	deleteVersion: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		return run(() => {
+			const { db, access: a } = access(locals, params);
+			deleteVersion(db, a, num(form, 'versionId'));
+		}, 'Version deleted.');
+	},
+	deleteOthers: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		return run(
+			() => {
+				const { db, access: a } = access(locals, params);
+				return deleteOtherVersions(db, a, num(form, 'itemId'));
+			},
+			(n) => `Deleted ${n} older version${n === 1 ? '' : 's'}.`
 		);
 	},
 	startOver: async ({ locals, params }) =>

@@ -101,7 +101,7 @@ export class ComfyUI implements ImageModel {
 		for (;;) {
 			if (signal?.aborted) {
 				await this.cancel(promptId);
-				throw new ComfyError('Cancelled.');
+				throw new ComfyError('Canceled.');
 			}
 			const history = (await (await this.request(`/history/${promptId}`)).json()) as Record<
 				string,
