@@ -96,10 +96,19 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
       pinned designs are never cleared away by new candidates
 - [ ] Chapter locations picker, once locations exist (milestone 3)
 
+## Milestone 2f: varied character designs
+
+- [x] Design options are four different designs, not one prompt with four
+      seeds: the AI sorts the look into traits the user's notes fix and
+      free ones (including details only the AI draft added), then spreads
+      the designs across the free traits; each option shows its label
+- [x] Choosing an option makes its appearance and outfit the character's
+- [x] "Keep" replaces "Lock" throughout the style page
+
 ## Next
 
 - [ ] Characters on the versioned items layer: every profile generation kept
-      (v0.11)
+      (v0.12)
 
 - [ ] Locations (milestone 3)
 - [ ] AI critique of samples with a vision model (Gemma 4)

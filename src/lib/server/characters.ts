@@ -217,7 +217,6 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 					.map((j) => [j.id, j.error] as const)
 			: []
 	);
-	const current = style ? characterPrompt(style, character) : null;
 	const develop = db
 		.select()
 		.from(jobs)
@@ -229,8 +228,26 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 		...img,
 		pending: img.jobId !== null && pendingIds.has(img.jobId),
 		error: img.jobId !== null ? (failed.get(img.jobId) ?? null) : null,
-		/** Drawn from an older description than the current one. */
-		stale: current !== null && img.prompt !== current,
+		/**
+		 * Drawn from an older description than the current one. The
+		 * reference is compared with the character; any other design option
+		 * with the character as it would be with that option's look.
+		 */
+		stale:
+			style !== undefined &&
+			img.kind === 'candidate' &&
+			img.prompt !== '' &&
+			img.prompt !==
+				characterPrompt(
+					style,
+					img.id === character.referenceImageId
+						? character
+						: {
+								...character,
+								appearance: img.appearance ?? character.appearance,
+								outfit: img.outfit ?? character.outfit
+							}
+				),
 		/** Drawn from a style prompt other than the current one. */
 		oldStyle: style !== undefined && img.stylePromptVersionId !== style.promptVersionId
 	}));
@@ -355,8 +372,9 @@ export function requestDevelop(
 }
 
 /**
- * Draw a fresh set of design candidates in the series' style. The
- * chosen reference is kept; other candidates are replaced.
+ * Draw a fresh set of design candidates in the series' style: the AI first
+ * proposes a different design for each (see `designsHandler`), then each is
+ * drawn. The chosen reference is kept; other candidates are replaced.
  */
 export function requestCandidates(
 	db: Db,
@@ -372,7 +390,7 @@ export function requestCandidates(
 	cancelJobs(
 		db,
 		pendingJobs(db, [characterId])
-			.filter((j) => j.kind === 'character.candidate')
+			.filter((j) => j.kind === 'character.candidate' || j.kind === 'character.designs')
 			.map((j) => j.id)
 	);
 	if (opts.newSeed) {
@@ -402,23 +420,28 @@ export function requestCandidates(
 			)
 		)
 		.run();
-	const prompt = characterPrompt(style, character);
-	for (let i = 0; i < CANDIDATE_COUNT; i++) {
-		const image = db
-			.insert(characterImages)
-			.values({
-				characterId,
-				kind: 'candidate',
-				prompt,
-				seed: character.seed + i,
-				stylePromptVersionId: style.promptVersionId,
-				createdAt: new Date()
-			})
-			.returning()
-			.get();
-		const job = enqueue(db, ownerId, 'character.candidate', { characterId, imageId: image.id });
-		db.update(characterImages).set({ jobId: job.id }).where(eq(characterImages.id, image.id)).run();
-	}
+	// The prompts are written once the AI has proposed the designs.
+	const imageIds = Array.from(
+		{ length: CANDIDATE_COUNT },
+		(_, i) =>
+			db
+				.insert(characterImages)
+				.values({
+					characterId,
+					kind: 'candidate',
+					prompt: '',
+					seed: character.seed + i,
+					stylePromptVersionId: style.promptVersionId,
+					createdAt: new Date()
+				})
+				.returning()
+				.get().id
+	);
+	const job = enqueue(db, ownerId, 'character.designs', { characterId, imageIds });
+	db.update(characterImages)
+		.set({ jobId: job.id })
+		.where(inArray(characterImages.id, imageIds))
+		.run();
 }
 
 /** Make a finished candidate the character's reference picture. */
@@ -438,8 +461,14 @@ export function chooseReference(
 	) {
 		throw new CharacterError('That picture is not ready.');
 	}
+	// The chosen design's look becomes the character's.
 	db.update(characters)
-		.set({ referenceImageId: imageId, updatedAt: new Date() })
+		.set({
+			referenceImageId: imageId,
+			...(image.appearance ? { appearance: image.appearance } : {}),
+			...(image.outfit ? { outfit: image.outfit } : {}),
+			updatedAt: new Date()
+		})
 		.where(eq(characters.id, characterId))
 		.run();
 	// Chapters the character joined before it had a design take this one.
@@ -637,6 +666,110 @@ const developHandler: JobHandler = async (job, { db, ai, signal }) => {
 	db.update(characters).set(update).where(eq(characters.id, characterId)).run();
 };
 
+const DESIGNS_SYSTEM = `You are an experienced manga character designer. You propose clearly different visual designs for one character, so the user can pick the look they like best.
+
+Work in two steps.
+
+First, sort the character's visible traits into fixed and free. A trait is fixed only when the user's own notes, the character's age, or the setting and era decide it. Everything else is free: traits the notes leave vague ("tough-looking", "a kid") and traits they never mention. The draft appearance and outfit were written by an AI, not the user: a trait that appears only in the draft (a scar, a hairstyle, freckles, a build) is free, and the designs should not all repeat it. Consider at least: build and height, posture, face shape, eyes, hair length and style, hair tone, skin tone, distinguishing marks, outfit cut and layering, outfit tones and patterns, footwear, and a signature prop or accessory.
+
+Second, write ${CANDIDATE_COUNT} designs that spread across the free traits. For each free trait, give the designs clearly different values from across its full range (slight to stocky, cropped to waist-length, plain to ornate), not small variations of one choice. The first design stays close to the current draft; each of the others combines different values, so no two designs share a silhouette at a glance. Every design keeps every fixed trait.
+
+Reply with only a JSON object with these keys:
+- "fixed": an array of short phrases, the traits that are fixed and what decides each.
+- "free": an array of the free traits, each with the range of values the designs use, for example "hair: cropped / shoulder-length / long braid / shaved sides".
+- "designs": an array of objects, each with these keys (all strings):
+  - "label": three to six words that set the design apart, for example "lanky, long braid, travel cloak".
+  - "appearance": 25 to 60 words an image model can draw: build and height, face, eyes, hair, skin, distinguishing marks. Physical and visible only.
+  - "outfit": 15 to 40 words: clothes and signature props, right for the setting and era.
+
+The image model reads negation as a request ("no hat" draws a hat), so never write "no", "not" or "without" in a design: describe only what is there.
+
+When the series is not in full color, describe hair, eyes, skin and clothing in tones (black, white, dark, pale, light gray) and patterns, never in hues.`;
+
+const designsReply = z.object({
+	fixed: z.array(z.string()).default([]),
+	free: z.array(z.string()).default([]),
+	designs: z
+		.array(
+			z.object({
+				label: z.string().default(''),
+				appearance: z.string().default(''),
+				outfit: z.string().default('')
+			})
+		)
+		.default([])
+});
+
+export function designMessages(character: Character, owner: Series, style: DrawingStyle) {
+	const lines = [
+		`Series title: ${owner.title}`,
+		`Setting and look of the series: ${style.description}`,
+		`Color: ${COLOR_MODES[style.colorMode].label}`,
+		`Character: ${character.name || 'unnamed'}, ${ROLES[character.role as Role] ?? character.role}`
+	];
+	if (character.age) lines.push(`Age: ${character.age}`);
+	lines.push(
+		`The user's own notes on this character (the only fixed traits besides age, setting and era): ${character.brief || '(none)'}`
+	);
+	if (character.personality) lines.push(`Personality: ${character.personality}`);
+	if (character.appearance || character.outfit) {
+		lines.push('Draft look written by an AI, free to change except where the notes decide:');
+		if (character.appearance) lines.push(`- appearance: ${character.appearance}`);
+		if (character.outfit) lines.push(`- outfit: ${character.outfit}`);
+	}
+	return [
+		{ role: 'system' as const, content: DESIGNS_SYSTEM },
+		{ role: 'user' as const, content: lines.join('\n') }
+	];
+}
+
+/**
+ * Propose a different design for each new candidate, then queue the
+ * drawing of each. A short reply leaves the rest on the current look.
+ */
+const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
+	const { characterId, imageIds } = job.payload as { characterId: number; imageIds: number[] };
+	const row = db
+		.select({ character: characters, series })
+		.from(characters)
+		.innerJoin(series, eq(characters.seriesId, series.id))
+		.where(eq(characters.id, characterId))
+		.get();
+	if (!row) return; // deleted meanwhile
+	const style = styleForContext(db, row.series);
+	if (!style) throw new Error('The series has no style.');
+	const reply = await ai.text.json(
+		designMessages(row.character, row.series, style),
+		designsReply,
+		signal
+	);
+	const images = db
+		.select()
+		.from(characterImages)
+		.where(inArray(characterImages.id, imageIds))
+		.orderBy(characterImages.id)
+		.all();
+	images.forEach((image, i) => {
+		const design = reply.designs[i];
+		const appearance = positiveOnly(design?.appearance.trim() || row.character.appearance);
+		const outfit = positiveOnly(design?.outfit.trim() || row.character.outfit);
+		const next = enqueue(db, job.userId, 'character.candidate', {
+			characterId,
+			imageId: image.id
+		});
+		db.update(characterImages)
+			.set({
+				prompt: characterPrompt(style, { ...row.character, appearance, outfit }),
+				variant: design?.label.trim() || 'Current look',
+				appearance,
+				outfit,
+				jobId: next.id
+			})
+			.where(eq(characterImages.id, image.id))
+			.run();
+	});
+};
+
 const candidateHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const { imageId } = job.payload as { imageId: number };
 	const row = db
@@ -688,6 +821,7 @@ const sheetHandler: JobHandler = async (job, { db, ai, signal }) => {
 
 export const characterJobHandlers: Record<string, JobHandler> = {
 	'character.develop': developHandler,
+	'character.designs': designsHandler,
 	'character.candidate': candidateHandler,
 	'character.sheet': sheetHandler
 };

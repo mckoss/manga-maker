@@ -87,7 +87,7 @@ export interface VersionContent {
 
 /** Add a finished version (an edit by the user, say) and make it current. */
 export function addVersion(db: Db, item: Item, content: VersionContent): Version {
-	if (item.locked) throw new VersionError('It is locked. Unlock it to change it.');
+	if (item.locked) throw new VersionError('It is kept. Stop keeping it to change it.');
 	return db.transaction((tx) => {
 		const version = tx
 			.insert(versions)
@@ -108,7 +108,7 @@ export function startVersion(
 	item: Item,
 	opts: { seed?: number | null; guidance?: string } = {}
 ): Version {
-	if (item.locked) throw new VersionError('It is locked. Unlock it to regenerate it.');
+	if (item.locked) throw new VersionError('It is kept. Stop keeping it to regenerate it.');
 	dropPending(db, [item.id]);
 	return db
 		.insert(versions)
@@ -228,7 +228,7 @@ export function useVersion(
 	opts: { lock?: boolean } = {}
 ): Item {
 	const { item } = accessVersion(db, access, versionId);
-	if (item.locked) throw new VersionError('It is locked. Unlock it to change it.');
+	if (item.locked) throw new VersionError('It is kept. Stop keeping it to change it.');
 	if (opts.lock) dropPending(db, [item.id]);
 	return db
 		.update(items)
@@ -241,7 +241,7 @@ export function useVersion(
 export function setLocked(db: Db, access: Access, itemId: number, locked: boolean): Item {
 	const item = accessItem(db, access, itemId);
 	if (locked && item.currentVersionId === null) {
-		throw new VersionError('There is nothing to lock yet.');
+		throw new VersionError('There is nothing to keep yet.');
 	}
 	if (locked) dropPending(db, [item.id]);
 	return db.update(items).set({ locked }).where(eq(items.id, itemId)).returning().get();

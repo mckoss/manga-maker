@@ -57,6 +57,13 @@
       "when": 1793456311924,
       "tag": "0007_series_chapters",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1793478172230,
+      "tag": "0008_candidate_designs",
+      "breakpoints": true
     }
   ]
 }

@@ -161,6 +161,10 @@
 			> first.
 		</p>
 	{/if}
+	<p class="hint">
+		Each option is a different take on the character's look. Choosing one makes its appearance and
+		outfit the character's.
+	</p>
 	{#if anyStale}
 		<p class="hint">Faded pictures were drawn from an older look or style.</p>
 	{/if}
@@ -172,8 +176,9 @@
 						<a href={asset(img.assetHash)} target="_blank" rel="noopener">
 							<img src={asset(img.thumbHash)} alt="Design option {i + 1}" loading="lazy" />
 						</a>
+						{#if img.variant}<figcaption class="variant">{img.variant}</figcaption>{/if}
 						{#if img.id === c.referenceImageId}
-							<figcaption><strong>Reference</strong></figcaption>
+							<p class="chosen"><strong>Reference</strong></p>
 						{:else}
 							<form method="POST" action="?/choose" use:enhance>
 								<input type="hidden" name="imageId" value={img.id} />
@@ -183,7 +188,11 @@
 					{:else if img.error}
 						<div class="placeholder error">Failed: {img.error}</div>
 					{:else if img.pending}
-						<div class="placeholder"><span class="spinner"></span> Drawing…</div>
+						<div class="placeholder">
+							<span class="spinner"></span>
+							{img.prompt ? 'Drawing…' : 'Designing…'}
+						</div>
+						{#if img.variant}<figcaption class="variant">{img.variant}</figcaption>{/if}
 					{:else}
 						<div class="placeholder">Canceled</div>
 					{/if}
@@ -195,7 +204,7 @@
 		<button type="submit" disabled={!canDraw}>
 			{data.candidates.length ? 'Draw options again' : 'Draw design options'}
 		</button>
-		<label class="check"><input type="checkbox" name="newSeed" /> New random variations</label>
+		<label class="check"><input type="checkbox" name="newSeed" /> New seeds</label>
 		{#if drawing}<span class="hint">About 5–10 seconds per picture.</span>{/if}
 	</form>
 </section>
@@ -325,5 +334,12 @@
 		.pictures {
 			position: static;
 		}
+	}
+	.variant {
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	.chosen {
+		margin: 0;
 	}
 </style>

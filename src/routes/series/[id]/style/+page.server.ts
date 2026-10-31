@@ -83,7 +83,7 @@ function access(locals: App.Locals, params: { id: string }) {
 }
 
 const count = (n: unknown, what: string) =>
-	n === 0 ? `Nothing to do: every unlocked ${what} is up to date.` : '';
+	n === 0 ? `Nothing to do: every ${what} not kept is up to date.` : '';
 
 export const actions: Actions = {
 	start: async ({ request, locals, params }) => {
@@ -193,7 +193,7 @@ export const actions: Actions = {
 				const { db, access: a } = access(locals, params);
 				useVersion(db, a, num(form, 'versionId'), { lock });
 			},
-			lock ? 'Using that version, locked.' : 'Using that version.'
+			lock ? 'Using that version, and keeping it.' : 'Using that version.'
 		);
 	},
 	lock: async ({ request, locals, params }) => {

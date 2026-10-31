@@ -73,10 +73,28 @@ function fakeCharacterReply() {
 	};
 }
 
+/** Canned character designs, each a different look. */
+function fakeDesignsReply() {
+	const looks = [
+		['close to the profile', 'long black hair in a high ponytail'],
+		['short and stocky, cropped hair', 'cropped hair and a broad build'],
+		['lanky, braid, travel cloak', 'a long braid and a narrow face'],
+		['wiry, wild hair, goggles', 'wild shoulder-length hair']
+	];
+	return {
+		designs: looks.map(([label, hair]) => ({
+			label,
+			appearance: `a young woman with ${hair}`,
+			outfit: 'a dark traveling kimono and a wooden staff'
+		}))
+	};
+}
+
 /** Answers each kind of request the app makes with a canned reply. */
 export function fakeReply(messages: ChatMessage[]) {
 	const system = messages[0]?.content ?? '';
 	if (system.includes('story editor')) return fakeCharacterReply();
+	if (system.includes('different visual designs')) return fakeDesignsReply();
 	if (system.includes('sample scenes')) return fakeScenesReply();
 	if (system.includes('Rewrite their description'))
 		return fakeFoldReply(messages[1]?.content ?? '');

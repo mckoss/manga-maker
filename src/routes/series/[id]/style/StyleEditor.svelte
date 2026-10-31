@@ -59,7 +59,7 @@
 <p class="hint">
 	Each step is made from the ones before it. When an earlier step changes, what was made from it is
 	marked <span class="badge warn">Out of date</span>. Every version is kept: browse back with ‹ ›,
-	go back to one, and lock what you're happy with so it is never regenerated.
+	go back to one, and keep what you're happy with so it is never regenerated.
 	{#if ed.ready}
 		The rest of the series is drawn with the current prompt.
 		<a href={resolve('/series/[id]/characters', { id })}>Next: characters →</a>
@@ -145,7 +145,7 @@
 				>Write missing and out-of-date scenes{scenesToWrite ? ` (${scenesToWrite})` : ''}</button
 			>
 			<button type="submit" name="which" value="all" class="secondary"
-				>Rewrite all unlocked scenes</button
+				>Rewrite all scenes not kept</button
 			>
 		</div>
 	</form>
@@ -176,7 +176,7 @@
 			>Draw missing and out-of-date pictures{picturesToDraw ? ` (${picturesToDraw})` : ''}</button
 		>
 		<button type="submit" name="which" value="all" class="secondary"
-			>Redraw all unlocked pictures</button
+			>Redraw all pictures not kept</button
 		>
 	</form>
 	<div class="samples">
