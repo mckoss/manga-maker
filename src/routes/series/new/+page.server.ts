@@ -1,11 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.js';
 import {
-	createManga,
+	createSeries,
 	isReadingDirection,
-	MangaError,
+	SeriesError,
 	READING_DIRECTIONS
-} from '#lib/server/mangas.js';
+} from '#lib/server/series.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = () => ({
@@ -25,14 +25,14 @@ export const actions: Actions = {
 		}
 		let id: number;
 		try {
-			id = createManga(getDb(), locals.user!.id, {
+			id = createSeries(getDb(), locals.user!.id, {
 				...values,
 				readingDirection: values.readingDirection
 			});
 		} catch (e) {
-			if (e instanceof MangaError) return fail(400, { ...values, error: e.message });
+			if (e instanceof SeriesError) return fail(400, { ...values, error: e.message });
 			throw e;
 		}
-		redirect(303, `/manga/${id}/style`);
+		redirect(303, `/series/${id}/style`);
 	}
 };

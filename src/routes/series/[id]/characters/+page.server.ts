@@ -11,12 +11,12 @@ import {
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, parent }) => {
-	const { manga } = await parent();
+	const { series } = await parent();
 	const db = getDb();
 	return {
-		cast: listCharacters(db, locals.user!.id, manga.id),
+		cast: listCharacters(db, locals.user!.id, series.id),
 		roles: Object.entries(ROLES).map(([value, label]) => ({ value, label })),
-		styleReady: Boolean(readyStyle(db, manga))
+		styleReady: Boolean(readyStyle(db, series))
 	};
 };
 
@@ -39,6 +39,6 @@ export const actions: Actions = {
 			if (e instanceof CharacterError) return fail(400, { ...values, error: e.message });
 			throw e;
 		}
-		redirect(303, `/manga/${params.id}/characters/${id}`);
+		redirect(303, `/series/${params.id}/characters/${id}`);
 	}
 };

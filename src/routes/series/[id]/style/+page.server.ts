@@ -2,13 +2,13 @@ import { fail } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.js';
 import { IMAGE_MODELS } from '#lib/server/ai/image.js';
 import {
-	mangaStyleId,
-	MangaError,
+	seriesStyleId,
+	SeriesError,
 	removeStyle,
 	reusableStyles,
 	reuseStyle,
 	startStyle
-} from '#lib/server/mangas.js';
+} from '#lib/server/series.js';
 import {
 	answerQuestions,
 	COLOR_MODES,
@@ -41,14 +41,14 @@ const colorModes = Object.entries(COLOR_MODES).map(([value, m]) => ({ value, lab
 const models = Object.entries(IMAGE_MODELS).map(([value, m]) => ({ value, label: m.label }));
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
-	const { manga } = await parent();
+	const { series } = await parent();
 	const db = getDb();
 	const ownerId = locals.user!.id;
 	return {
-		editor: manga.styleId ? getStyle(db, ownerId, manga.styleId) : null,
+		editor: series.styleId ? getStyle(db, ownerId, series.styleId) : null,
 		colorModes,
 		models,
-		reusable: manga.styleId ? [] : reusableStyles(db, ownerId, Number(params.id))
+		reusable: series.styleId ? [] : reusableStyles(db, ownerId, Number(params.id))
 	};
 };
 
@@ -59,7 +59,7 @@ async function run(fn: () => unknown, message?: string | ((result: unknown) => s
 		const text = typeof message === 'function' ? message(result) : message;
 		return text ? { message: text } : undefined;
 	} catch (e) {
-		if (e instanceof StyleError || e instanceof MangaError || e instanceof VersionError) {
+		if (e instanceof StyleError || e instanceof SeriesError || e instanceof VersionError) {
 			return fail(400, { error: e.message });
 		}
 		throw e;
@@ -75,10 +75,10 @@ function which(form: FormData): Which {
 	throw new StyleError('Choose what to regenerate.');
 }
 
-/** The style of the manga in the URL, and access to its items. */
+/** The style of the series in the URL, and access to its items. */
 function access(locals: App.Locals, params: { id: string }) {
 	const db = getDb();
-	const styleId = mangaStyleId(db, locals.user!.id, Number(params.id));
+	const styleId = seriesStyleId(db, locals.user!.id, Number(params.id));
 	return { db, styleId, access: styleAccess(db, locals.user!.id, styleId) };
 }
 
@@ -105,7 +105,7 @@ export const actions: Actions = {
 		const form = await request.formData();
 		return run(
 			() => reuseStyle(getDb(), locals.user!.id, Number(params.id), num(form, 'styleId')),
-			'Style copied. Change anything you like; it only affects this manga.'
+			'Style copied. Change anything you like; it only affects this series.'
 		);
 	},
 	saveSettings: async ({ request, locals, params }) => {

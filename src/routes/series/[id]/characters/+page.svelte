@@ -4,24 +4,24 @@
 
 	let { data, form }: PageProps = $props();
 
-	let id = $derived(String(data.manga.id));
+	let id = $derived(String(data.series.id));
 	const roleLabel = (role: string) => data.roles.find((r) => r.value === role)?.label ?? role;
 </script>
 
-<svelte:head><title>Characters · {data.manga.title} · Manga Maker</title></svelte:head>
+<svelte:head><title>Characters · {data.series.title} · Manga Maker</title></svelte:head>
 
 <h1>Characters</h1>
 <p class="hint">
 	Build your cast one character at a time. Describe each in a few words; the AI develops a profile
 	(personality, motivation, look) that you can edit. Then draw design options in your style and pick
-	one as the character's reference picture, so they look the same in every panel. A short manga
+	one as the character's reference picture, so they look the same in every panel. A short chapter
 	usually needs two to five characters.
 </p>
 
 {#if !data.styleReady}
 	<p class="notice">
-		You can write profiles now, but pictures are drawn in your manga's style:
-		<a href={resolve('/manga/[id]/style', { id })}>draw a sample picture of the style</a> first.
+		You can write profiles now, but pictures are drawn in your series' style:
+		<a href={resolve('/series/[id]/style', { id })}>draw a sample picture of the style</a> first.
 	</p>
 {/if}
 
@@ -29,7 +29,7 @@
 	<ul class="cast">
 		{#each data.cast as c (c.id)}
 			<li>
-				<a href={resolve('/manga/[id]/characters/[cid]', { id, cid: String(c.id) })}>
+				<a href={resolve('/series/[id]/characters/[cid]', { id, cid: String(c.id) })}>
 					{#if c.thumb}
 						<img src={resolve('/assets/[hash]', { hash: c.thumb })} alt="" loading="lazy" />
 					{:else}

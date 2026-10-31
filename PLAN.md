@@ -34,7 +34,7 @@ belong to that manga; for now, to reuse one in another manga the user copies
 it, so changing it in one comic never silently changes another. Each carries
 reference images that every later generation draws on.
 
-### Series and chapters (planned, v0.10)
+### Series and chapters (built in v0.10)
 
 A series reuses its look and cast across stories, so the style, characters
 and locations move up to a **series**, and each story is a **chapter** of it:
@@ -51,6 +51,12 @@ and locations move up to a **series**, and each story is a **chapter** of it:
   Locations and its chapters; a chapter's sidebar has Cast and Locations
   (pickers), then Plot, Script, Panels and Pages.
 - Existing manga become a series of the same name with one chapter.
+
+As built: the pinned version is the character's design (its reference
+picture) until characters move onto versioned items (v0.11). A character
+added before it has a design takes the first one chosen. Chapters are
+numbered in order; deleting one renumbers the rest. The chapter's
+Locations picker waits for locations.
 
 ### Every generation is kept
 
@@ -199,7 +205,9 @@ jobs against a memory budget, prefers mid-size LLMs (Qwen 3.8 27B, Gemma 4
 | user            | username (unique), password hash (scrypt), created                                  |
 | session         | token hash, user, expires                                                           |
 | style           | owner, name, color mode, spec (JSON), prompt fragment, model settings, sheet assets |
-| manga           | owner, title, logline, reading direction, style (its own copy)                      |
+| series          | owner, title, logline, reading direction, style (its own copy)                      |
+| chapter         | series, number, title, logline                                                      |
+| chapter_cast    | chapter ↔ character, pinned design (reference picture)                              |
 | character       | owner, name, role, profile (JSON), visual spec (JSON)                               |
 | location        | owner, name, description, mood                                                      |
 | story           | project, structure template, beats (ordered)                                        |

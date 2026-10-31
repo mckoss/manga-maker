@@ -61,8 +61,8 @@
 	marked <span class="badge warn">Out of date</span>. Every version is kept: browse back with ‹ ›,
 	go back to one, and lock what you're happy with so it is never regenerated.
 	{#if ed.ready}
-		The rest of the manga is drawn with the current prompt.
-		<a href={resolve('/manga/[id]/characters', { id })}>Next: characters →</a>
+		The rest of the series is drawn with the current prompt.
+		<a href={resolve('/series/[id]/characters', { id })}>Next: characters →</a>
 	{/if}
 </p>
 

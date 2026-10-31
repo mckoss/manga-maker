@@ -2,9 +2,9 @@ import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 
 async function newStyle(page: Page, title: string) {
-	await page.goto('/manga/new');
+	await page.goto('/series/new');
 	await page.getByLabel('Title').fill(title);
-	await page.getByRole('button', { name: 'Create manga' }).click();
+	await page.getByRole('button', { name: 'Create series' }).click();
 	await page.getByLabel('Describe the look').fill('Edo-period ink, villages, kimono');
 	await page.getByRole('button', { name: 'Start the style' }).click();
 	await page.getByRole('button', { name: /Draw missing and out-of-date pictures/ }).click();
