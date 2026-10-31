@@ -50,8 +50,16 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [x] Cast count in the sidebar; unit and e2e tests
 - [x] Real-AI check and prompt fixes: `docs/character-evaluation.md`
 
+## Milestone 2b: character sheets
+
+- [x] `ImageModel.edit` (Qwen-Image-Edit through ComfyUI, image upload)
+- [x] Sheet: three-quarter, side and back views plus five expressions,
+      redrawn from the reference; redraw one or all; flags a sheet made from
+      a different reference
+- [x] Fix: the server now exits on SIGTERM (the job worker's timer kept it
+      alive)
+
 ## Next
 
-- [ ] Character sheets: turnaround and expressions from the reference
-      (Qwen-Image-Edit)
+- [ ] Locations (milestone 3)
 - [ ] AI critique of samples with a vision model (Gemma 4)

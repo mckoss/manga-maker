@@ -24,6 +24,9 @@ import {
 	listCharacters,
 	requestCandidates,
 	requestDevelop,
+	requestSheet,
+	SHEET_VIEWS,
+	sheetPrompt,
 	updateCharacter
 } from './characters';
 
@@ -186,6 +189,41 @@ describe('characters', () => {
 		expect(() => chooseReference(db, owner, a, pending.id)).toThrow(/not ready/);
 		await worker.drain();
 		expect(() => chooseReference(db, owner, b, pending.id)).toThrow(/not ready/);
+	});
+
+	it('redraws a character sheet from the reference, view by view', async () => {
+		await approveStyle();
+		const id = createCharacter(db, owner, mangaId, brief);
+		await worker.drain();
+		expect(() => requestSheet(db, owner, id)).toThrow(/reference picture first/);
+		requestCandidates(db, owner, id);
+		await worker.drain();
+		const [first, second] = getCharacter(db, owner, id).candidates;
+		chooseReference(db, owner, id, first.id);
+
+		requestSheet(db, owner, id);
+		await worker.drain();
+		let sheet = getCharacter(db, owner, id).sheet;
+		expect(sheet.map((s) => s.view)).toEqual(SHEET_VIEWS.map((v) => v.key));
+		expect(sheet.every((s) => s.image?.assetHash && !s.image.outdated)).toBe(true);
+		expect(image.edits).toHaveLength(SHEET_VIEWS.length);
+		expect(image.edits[0].prompt).toBe(sheetPrompt('bw', 'three-quarter'));
+		expect(image.edits[0].prompt).toMatch(/black ink on white paper\.$/);
+
+		// Redrawing one view replaces only that one, with a new seed.
+		const side = sheet.find((s) => s.view === 'side')!.image!;
+		requestSheet(db, owner, id, 'side');
+		await worker.drain();
+		sheet = getCharacter(db, owner, id).sheet;
+		const newSide = sheet.find((s) => s.view === 'side')!.image!;
+		expect(newSide.id).not.toBe(side.id);
+		expect(newSide.seed).not.toBe(side.seed);
+		expect(image.edits).toHaveLength(SHEET_VIEWS.length + 1);
+
+		// A different reference makes the sheet outdated; sheet pictures can't be one.
+		chooseReference(db, owner, id, second.id);
+		expect(getCharacter(db, owner, id).sheet.every((s) => s.image?.outdated)).toBe(true);
+		expect(() => chooseReference(db, owner, id, newSide.id)).toThrow(/not ready/);
 	});
 
 	it("keeps users out of each other's characters", async () => {

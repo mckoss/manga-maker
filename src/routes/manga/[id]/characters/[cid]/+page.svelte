@@ -25,6 +25,8 @@
 	let drawing = $derived(data.candidates.some((i) => i.pending));
 	let anyStale = $derived(data.candidates.some((i) => i.assetHash && (i.stale || i.oldStyle)));
 	let canDraw = $derived(Boolean(data.style && c.appearance && !data.developing));
+	let sheetEmpty = $derived(data.sheet.every((s) => !s.image));
+	let sheetOutdated = $derived(data.sheet.some((s) => s.image?.assetHash && s.image.outdated));
 </script>
 
 <svelte:head><title>{c.name || 'Character'} · {data.manga.title} · Manga Maker</title></svelte:head>
@@ -197,6 +199,61 @@
 	</form>
 </section>
 
+<section>
+	<h2>Character sheet</h2>
+	<p class="hint">
+		The reference picture redrawn from other angles and with different expressions, so panels can
+		show the character any way the script needs. About 10 seconds per picture.
+	</p>
+	{#if !data.reference}
+		<p class="hint">Choose a reference picture first.</p>
+	{:else}
+		{#if sheetOutdated}
+			<p class="hint">Faded pictures were drawn from a different reference picture.</p>
+		{/if}
+		{#if !sheetEmpty}
+			<div class="samples portrait">
+				{#each data.sheet as cell (cell.view)}
+					<figure class:stale={cell.image?.outdated}>
+						{#if cell.image?.assetHash && cell.image.thumbHash}
+							<a href={asset(cell.image.assetHash)} target="_blank" rel="noopener">
+								<img
+									src={asset(cell.image.thumbHash)}
+									alt="{c.name}: {cell.label}"
+									loading="lazy"
+								/>
+							</a>
+						{:else if cell.image?.error}
+							<div class="placeholder error">Failed: {cell.image.error}</div>
+						{:else if cell.image?.pending}
+							<div class="placeholder"><span class="spinner"></span> Drawing…</div>
+						{:else}
+							<div class="placeholder">—</div>
+						{/if}
+						<figcaption class="row">
+							{cell.label}
+							<form method="POST" action="?/sheet" use:enhance>
+								<input type="hidden" name="view" value={cell.view} />
+								<button
+									type="submit"
+									class="secondary small"
+									disabled={cell.image?.pending}
+									aria-label="Redraw {cell.label}">Redraw</button
+								>
+							</form>
+						</figcaption>
+					</figure>
+				{/each}
+			</div>
+		{/if}
+		<form method="POST" action="?/sheet" use:enhance>
+			<button type="submit" disabled={!data.style}>
+				{sheetEmpty ? 'Draw the character sheet' : 'Redraw the whole sheet'}
+			</button>
+		</form>
+	{/if}
+</section>
+
 <section class="danger-zone">
 	<form
 		method="POST"
@@ -240,6 +297,13 @@
 	}
 	.portrait form {
 		margin-top: 0.35rem;
+	}
+	.portrait figcaption.row {
+		justify-content: space-between;
+		margin: 0.25rem 0 0;
+	}
+	.portrait figcaption form {
+		margin: 0;
 	}
 	@media (max-width: 720px) {
 		.layout {

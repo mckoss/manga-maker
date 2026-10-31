@@ -5,9 +5,11 @@ import {
 	chooseReference,
 	deleteCharacter,
 	getCharacter,
+	isSheetView,
 	PROFILE_FIELDS,
 	requestCandidates,
 	requestDevelop,
+	requestSheet,
 	ROLES,
 	updateCharacter,
 	type Profile
@@ -76,6 +78,18 @@ export const actions: Actions = {
 			() =>
 				chooseReference(getDb(), locals.user!.id, Number(params.cid), Number(form.get('imageId'))),
 			'Reference picture chosen.'
+		);
+	},
+	sheet: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		const view = String(form.get('view') ?? '');
+		return run(() =>
+			requestSheet(
+				getDb(),
+				locals.user!.id,
+				Number(params.cid),
+				isSheetView(view) ? view : undefined
+			)
 		);
 	},
 	delete: async ({ locals, params }) => {

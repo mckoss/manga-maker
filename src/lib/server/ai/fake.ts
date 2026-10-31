@@ -1,6 +1,6 @@
 import sharp from 'sharp';
 import type { z } from 'zod';
-import type { ImageModel, ImageRequest, ImageResult } from './image';
+import type { EditRequest, ImageModel, ImageRequest, ImageResult } from './image';
 import type { ChatMessage, TextModel } from './text';
 
 /**
@@ -9,6 +9,7 @@ import type { ChatMessage, TextModel } from './text';
  */
 export class FakeImageModel implements ImageModel {
 	calls: ImageRequest[] = [];
+	edits: EditRequest[] = [];
 
 	async generate(req: ImageRequest): Promise<ImageResult> {
 		this.calls.push(req);
@@ -24,6 +25,17 @@ export class FakeImageModel implements ImageModel {
 			.png()
 			.toBuffer();
 		return { png, workflow: { fake: true, ...req } };
+	}
+
+	/** The first input, tinted by the seed, so each edit is a distinct image. */
+	async edit(req: EditRequest): Promise<ImageResult> {
+		this.edits.push(req);
+		const png = await sharp(req.images[0])
+			.resize(128, 224)
+			.tint(`hsl(${req.seed % 360}, 50%, 50%)`)
+			.png()
+			.toBuffer();
+		return { png, workflow: { fake: true, prompt: req.prompt, seed: req.seed } };
 	}
 }
 

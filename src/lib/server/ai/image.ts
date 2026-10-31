@@ -7,6 +7,17 @@ export interface ImageRequest {
 	height: number;
 }
 
+/**
+ * An instruction-following edit of one to three images (Qwen-Image-Edit).
+ * The first image sets the output's shape; the prompt calls the images
+ * "image 1", "image 2" and "image 3".
+ */
+export interface EditRequest {
+	prompt: string;
+	images: Buffer[];
+	seed: number;
+}
+
 export interface ImageResult {
 	png: Buffer;
 	/** The exact backend input, kept with the image so it can be reproduced. */
@@ -27,6 +38,7 @@ export const IMAGE_MODELS: Record<ImageModelId, { label: string }> = {
 
 export interface ImageModel {
 	generate(req: ImageRequest, signal?: AbortSignal): Promise<ImageResult>;
+	edit(req: EditRequest, signal?: AbortSignal): Promise<ImageResult>;
 }
 
 /** Largest seed every backend accepts. */

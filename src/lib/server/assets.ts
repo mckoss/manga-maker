@@ -55,6 +55,10 @@ export async function putImage(db: Db, png: Buffer, root = config.dataDir) {
 	};
 }
 
+export function readAsset(hash: string, root = config.dataDir): Buffer {
+	return fs.readFileSync(assetPath(hash, root));
+}
+
 export function getAsset(db: Db, hash: string) {
 	return db.select().from(assets).where(eq(assets.hash, hash)).get();
 }
