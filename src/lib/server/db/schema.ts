@@ -167,8 +167,15 @@ export const characterImages = sqliteTable('character_images', {
 	characterId: integer('character_id')
 		.notNull()
 		.references(() => characters.id, { onDelete: 'cascade' }),
-	/** candidate: a full-body design option to choose the reference from. */
+	/**
+	 * candidate: a full-body design option to choose the reference from.
+	 * sheet: a view or expression redrawn from the reference (see `view`).
+	 */
 	kind: text('kind').notNull(),
+	/** For sheet pictures, which view or expression (see SHEET_VIEWS). */
+	view: text('view'),
+	/** For sheet pictures, the reference picture they were redrawn from. */
+	sourceImageId: integer('source_image_id'),
 	prompt: text('prompt').notNull(),
 	seed: integer('seed').notNull(),
 	/** The style version it was drawn in, to flag pictures from an older style. */

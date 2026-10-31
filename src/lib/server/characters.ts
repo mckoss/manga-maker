@@ -16,7 +16,7 @@ import {
 	type StyleVersion
 } from './db/schema';
 import { randomSeed, type ImageModelId } from './ai/image';
-import { putImage } from './assets';
+import { putImage, readAsset } from './assets';
 import { cancelJobs, enqueue, type JobHandler } from './jobs';
 import { ownedManga, touchManga } from './mangas';
 import { COLOR_MODES, compilePrompt, positiveOnly, sentence } from './styles';
@@ -76,6 +76,46 @@ export function characterPrompt(
 		.filter(Boolean)
 		.join(' ');
 	return compilePrompt(style, subject);
+}
+
+const KEEP = 'Keep the same character, face, hair, outfit, drawing style, line work and shading.';
+const BODY = 'Full body from head to feet, plain white background.';
+const FACE = 'Close-up of the face and shoulders, plain white background.';
+
+/**
+ * The character sheet: views and expressions redrawn from the reference
+ * picture with the edit model, so later panels can draw the character from
+ * any angle and in any mood.
+ */
+export const SHEET_VIEWS = [
+	{
+		key: 'three-quarter',
+		label: 'Three-quarter',
+		instruction: `Show this character turned three-quarters to the left. ${BODY}`
+	},
+	{
+		key: 'side',
+		label: 'Side',
+		instruction: `Show this character from the side, in profile, facing left. ${BODY}`
+	},
+	{ key: 'back', label: 'Back', instruction: `Show this character from behind. ${BODY}` },
+	{ key: 'neutral', label: 'Neutral', instruction: `${FACE} Calm, neutral expression.` },
+	{ key: 'happy', label: 'Happy', instruction: `${FACE} Laughing happily.` },
+	{ key: 'angry', label: 'Angry', instruction: `${FACE} Furious, shouting.` },
+	{ key: 'sad', label: 'Sad', instruction: `${FACE} Sad, on the verge of tears.` },
+	{ key: 'surprised', label: 'Surprised', instruction: `${FACE} Shocked and surprised, eyes wide.` }
+] as const;
+
+export type SheetView = (typeof SHEET_VIEWS)[number]['key'];
+
+export function isSheetView(value: string): value is SheetView {
+	return SHEET_VIEWS.some((v) => v.key === value);
+}
+
+/** The edit instruction for one sheet view, in the manga's colour mode. */
+export function sheetPrompt(colorMode: ColorMode, view: SheetView): string {
+	const { instruction } = SHEET_VIEWS.find((v) => v.key === view)!;
+	return [instruction, KEEP, TONE_REMINDER[colorMode]].filter(Boolean).join(' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -199,12 +239,27 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 		/** Drawn in a style version other than the approved one. */
 		oldStyle: style !== undefined && img.styleVersionId !== style.id
 	}));
+	const sheet = SHEET_VIEWS.map((view) => {
+		const image = decorated.findLast((img) => img.kind === 'sheet' && img.view === view.key);
+		return {
+			view: view.key,
+			label: view.label,
+			image: image
+				? {
+						...image,
+						/** Redrawn from a reference that is no longer the chosen one. */
+						outdated: image.sourceImageId !== character.referenceImageId
+					}
+				: null
+		};
+	});
 	return {
 		character,
 		manga,
 		style: style ?? null,
 		reference: decorated.find((img) => img.id === character.referenceImageId) ?? null,
 		candidates: decorated.filter((img) => img.kind === 'candidate'),
+		sheet,
 		developing: pending.some((j) => j.kind === 'character.develop'),
 		developError: develop?.status === 'failed' ? develop.error : null,
 		busy: pending.length > 0
@@ -360,7 +415,12 @@ export function chooseReference(
 ): void {
 	const { character } = ownedCharacter(db, ownerId, characterId);
 	const image = db.select().from(characterImages).where(eq(characterImages.id, imageId)).get();
-	if (!image || image.characterId !== characterId || !image.assetHash) {
+	if (
+		!image ||
+		image.characterId !== characterId ||
+		image.kind !== 'candidate' ||
+		!image.assetHash
+	) {
 		throw new CharacterError('That picture is not ready.');
 	}
 	db.update(characters)
@@ -368,6 +428,57 @@ export function chooseReference(
 		.where(eq(characters.id, characterId))
 		.run();
 	touchManga(db, character.mangaId);
+}
+
+/**
+ * Redraw sheet views from the reference picture: every view, or just one.
+ * Each round uses new seeds, so redrawing one view gives a different result.
+ */
+export function requestSheet(db: Db, ownerId: number, characterId: number, only?: SheetView): void {
+	const { character, manga } = ownedCharacter(db, ownerId, characterId);
+	const style = approvedStyle(db, manga);
+	if (!style) throw new CharacterError('Approve the manga’s style before drawing characters.');
+	if (!character.referenceImageId) throw new CharacterError('Choose a reference picture first.');
+	const views = only ? [only] : SHEET_VIEWS.map((v) => v.key);
+	const old = db
+		.select()
+		.from(characterImages)
+		.where(and(eq(characterImages.characterId, characterId), eq(characterImages.kind, 'sheet')))
+		.all()
+		.filter((img) => views.includes(img.view as SheetView));
+	cancelJobs(
+		db,
+		old.map((img) => img.jobId).filter((id): id is number => id !== null)
+	);
+	if (old.length) {
+		db.delete(characterImages)
+			.where(
+				inArray(
+					characterImages.id,
+					old.map((img) => img.id)
+				)
+			)
+			.run();
+	}
+	const seed = randomSeed();
+	views.forEach((view, i) => {
+		const image = db
+			.insert(characterImages)
+			.values({
+				characterId,
+				kind: 'sheet',
+				view,
+				sourceImageId: character.referenceImageId,
+				prompt: sheetPrompt(style.colorMode, view),
+				seed: seed + i,
+				styleVersionId: style.id,
+				createdAt: new Date()
+			})
+			.returning()
+			.get();
+		const job = enqueue(db, ownerId, 'character.sheet', { characterId, imageId: image.id });
+		db.update(characterImages).set({ jobId: job.id }).where(eq(characterImages.id, image.id)).run();
+	});
 }
 
 export function deleteCharacter(db: Db, ownerId: number, characterId: number): void {
@@ -524,7 +635,29 @@ const candidateHandler: JobHandler = async (job, { db, ai, signal }) => {
 		.run();
 };
 
+const sheetHandler: JobHandler = async (job, { db, ai, signal }) => {
+	const { imageId } = job.payload as { imageId: number };
+	const image = db.select().from(characterImages).where(eq(characterImages.id, imageId)).get();
+	if (!image?.sourceImageId) return; // replaced by a newer one
+	const source = db
+		.select()
+		.from(characterImages)
+		.where(eq(characterImages.id, image.sourceImageId))
+		.get();
+	if (!source?.assetHash) throw new Error('The reference picture is missing.');
+	const result = await ai.image.edit(
+		{ prompt: image.prompt, images: [readAsset(source.assetHash)], seed: image.seed },
+		signal
+	);
+	const { hash, thumbHash } = await putImage(db, result.png);
+	db.update(characterImages)
+		.set({ assetHash: hash, thumbHash })
+		.where(eq(characterImages.id, imageId))
+		.run();
+};
+
 export const characterJobHandlers: Record<string, JobHandler> = {
 	'character.develop': developHandler,
-	'character.candidate': candidateHandler
+	'character.candidate': candidateHandler,
+	'character.sheet': sheetHandler
 };

@@ -45,8 +45,17 @@ seeds, so the choice is mostly about pose and expression.
 - **Negation again.** As with styles, "no" clauses are stripped from the AI's
   appearance and outfit text before they reach the image model.
 
-## Next
+## Character sheets
 
-- Turnaround (front, three-quarter, side) and expression sheets from the
-  chosen reference with Qwen-Image-Edit, to check identity holds across
-  angles.
+From the chosen reference (left), Qwen-Image-Edit 2509 (Lightning, 4 steps)
+redraws three views and five expressions, about 12 s each. Identity holds
+well: hair, scars, the milky eye, outfit and props carry over, and the style
+does too. It even completed Jubei's feet, which his reference had cropped.
+Each edit instruction ends "Keep the same character, face, hair, outfit,
+drawing style, line work and shading", plus the tone reminder.
+
+![Character sheets: reference, three views, five expressions](images/character-sheets.jpg)
+
+Weak spots: back views sometimes repeat front-only details (Kaede's apron),
+and close-ups soften the face slightly. Any single picture can be redrawn
+with a new seed.

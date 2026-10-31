@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildWorkflow } from './comfyui';
+import { buildEditWorkflow, buildWorkflow } from './comfyui';
 import { IMAGE_MODELS, type ImageModelId } from './image';
 
 describe('buildWorkflow', () => {
@@ -22,5 +22,17 @@ describe('buildWorkflow', () => {
 			expect(wf.sampler.inputs.cfg).toBe(1);
 			expect(wf.negative.class_type).toBe('ConditioningZeroOut');
 		}
+	});
+});
+
+describe('buildEditWorkflow', () => {
+	it('edits the first image and passes the rest as references', () => {
+		const wf = buildEditWorkflow({ prompt: 'turn around', seed: 3 }, ['a.png', 'b.png']);
+		expect(wf.load.inputs.image).toBe('a.png');
+		expect(wf.load2.inputs.image).toBe('b.png');
+		expect(wf.positive.inputs.image2).toEqual(['load2', 0]);
+		expect(wf.positive.inputs.prompt).toBe('turn around');
+		expect(wf.sampler.inputs).toMatchObject({ seed: 3, cfg: 1 });
+		expect(() => buildEditWorkflow({ prompt: '', seed: 1 }, [])).toThrow();
 	});
 });

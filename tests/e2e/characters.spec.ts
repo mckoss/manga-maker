@@ -47,6 +47,12 @@ test('builds a character and chooses a reference picture', async ({ signedIn: pa
 	await expect(page.getByRole('img', { name: 'Aiko reference' })).toBeVisible();
 	await expect(steps(page).getByText('1/1')).toBeVisible();
 
+	await page.getByRole('button', { name: 'Draw the character sheet' }).click();
+	await expect(page.getByRole('img', { name: 'Aiko: Back' })).toBeVisible();
+	await expect(page.getByRole('img', { name: /^Aiko: / })).toHaveCount(8);
+	await page.getByRole('button', { name: 'Redraw Side' }).click();
+	await expect(page.getByRole('img', { name: 'Aiko: Side' })).toBeVisible();
+
 	await page.getByRole('link', { name: '← Characters' }).click();
 	await expect(
 		page.getByRole('link', { name: /Aiko/ }).getByText('reference chosen')
