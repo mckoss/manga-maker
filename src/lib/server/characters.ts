@@ -1,21 +1,23 @@
-import { and, eq, inArray, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNotNull, isNull, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
 import type { Db } from './db';
 import {
+	chapterCast,
+	chapters,
 	characterImages,
 	characters,
 	jobs,
-	mangas,
+	series,
 	type Character,
 	type CharacterImage,
 	type ColorMode,
 	type Job,
-	type Manga
+	type Series
 } from './db/schema';
 import { randomSeed } from './ai/image';
 import { putImage, readAsset } from './assets';
 import { cancelJobs, enqueue, type JobHandler } from './jobs';
-import { ownedManga, touchManga } from './mangas';
+import { ownedSeries, touchSeries } from './series';
 import {
 	COLOR_MODES,
 	compilePrompt,
@@ -108,7 +110,7 @@ export function isSheetView(value: string): value is SheetView {
 }
 
 /**
- * The edit instruction for one sheet view, in the manga's color mode, with
+ * The edit instruction for one sheet view, in the series' color mode, with
  * the user's guidance for that one redraw ("looking over her shoulder").
  */
 export function sheetPrompt(colorMode: ColorMode, view: SheetView, guidance = ''): string {
@@ -124,30 +126,30 @@ export function sheetPrompt(colorMode: ColorMode, view: SheetView, guidance = ''
 
 function ownedCharacter(db: Db, ownerId: number, characterId: number) {
 	const row = db
-		.select({ character: characters, manga: mangas })
+		.select({ character: characters, series })
 		.from(characters)
-		.innerJoin(mangas, eq(characters.mangaId, mangas.id))
+		.innerJoin(series, eq(characters.seriesId, series.id))
 		.where(eq(characters.id, characterId))
 		.get();
-	if (!row || row.manga.ownerId !== ownerId) throw new CharacterError('Character not found.');
+	if (!row || row.series.ownerId !== ownerId) throw new CharacterError('Character not found.');
 	return row;
 }
 
 /**
- * The manga's style, which every character picture is drawn in, once it is
+ * The series' style, which every character picture is drawn in, once it is
  * ready (it has a prompt and a sample picture).
  */
-export function readyStyle(db: Db, manga: Pick<Manga, 'styleId'>): DrawingStyle | undefined {
-	const style = manga.styleId ? drawingStyle(db, manga.styleId) : undefined;
+export function readyStyle(db: Db, owner: Pick<Series, 'styleId'>): DrawingStyle | undefined {
+	const style = owner.styleId ? drawingStyle(db, owner.styleId) : undefined;
 	return style?.ready ? style : undefined;
 }
 
-/** The style that tells the AI about the manga's setting, ready or not. */
-function styleForContext(db: Db, manga: Pick<Manga, 'styleId'>): DrawingStyle | undefined {
-	return manga.styleId ? drawingStyle(db, manga.styleId) : undefined;
+/** The style that tells the AI about the series' setting, ready or not. */
+function styleForContext(db: Db, owner: Pick<Series, 'styleId'>): DrawingStyle | undefined {
+	return owner.styleId ? drawingStyle(db, owner.styleId) : undefined;
 }
 
-const NO_STYLE = 'Draw at least one sample picture of the manga’s style before drawing characters.';
+const NO_STYLE = 'Draw at least one sample picture of the series’ style before drawing characters.';
 
 /** Unfinished jobs for the given characters. */
 function pendingJobs(db: Db, characterIds: number[]): Job[] {
@@ -171,12 +173,12 @@ function imagesOf(db: Db, characterId: number): CharacterImage[] {
 		.all();
 }
 
-export function listCharacters(db: Db, ownerId: number, mangaId: number) {
-	ownedManga(db, ownerId, mangaId);
+export function listCharacters(db: Db, ownerId: number, seriesId: number) {
+	ownedSeries(db, ownerId, seriesId);
 	const cast = db
 		.select()
 		.from(characters)
-		.where(eq(characters.mangaId, mangaId))
+		.where(eq(characters.seriesId, seriesId))
 		.orderBy(characters.id)
 		.all();
 	const refs = new Map(
@@ -199,8 +201,8 @@ export function listCharacters(db: Db, ownerId: number, mangaId: number) {
 }
 
 export function getCharacter(db: Db, ownerId: number, characterId: number) {
-	const { character, manga } = ownedCharacter(db, ownerId, characterId);
-	const style = readyStyle(db, manga);
+	const { character, series } = ownedCharacter(db, ownerId, characterId);
+	const style = readyStyle(db, series);
 	const pending = pendingJobs(db, [characterId]);
 	const pendingIds = new Set(pending.map((j) => j.id));
 	const images = imagesOf(db, characterId);
@@ -248,7 +250,7 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 	});
 	return {
 		character,
-		manga,
+		series,
 		style: style ?? null,
 		reference: decorated.find((img) => img.id === character.referenceImageId) ?? null,
 		candidates: decorated.filter((img) => img.kind === 'candidate'),
@@ -268,14 +270,22 @@ export interface NewCharacter {
 	brief: string;
 }
 
-/** Add a character to a manga and ask the AI to develop a profile from the brief. */
+/**
+ * Add a character to a series and ask the AI to develop a profile from the
+ * brief. Made while working on a chapter, it joins that chapter's cast too.
+ */
 export function createCharacter(
 	db: Db,
 	ownerId: number,
-	mangaId: number,
-	input: NewCharacter
+	seriesId: number,
+	input: NewCharacter,
+	chapterId?: number
 ): number {
-	ownedManga(db, ownerId, mangaId);
+	ownedSeries(db, ownerId, seriesId);
+	if (chapterId !== undefined) {
+		const chapter = db.select().from(chapters).where(eq(chapters.id, chapterId)).get();
+		if (chapter?.seriesId !== seriesId) throw new CharacterError('Chapter not found.');
+	}
 	const name = input.name.trim();
 	const brief = input.brief.trim();
 	if (!name && !brief) throw new CharacterError('Give the character a name or a description.');
@@ -283,7 +293,7 @@ export function createCharacter(
 	const character = db
 		.insert(characters)
 		.values({
-			mangaId,
+			seriesId,
 			name,
 			role: input.role,
 			brief,
@@ -293,7 +303,10 @@ export function createCharacter(
 		})
 		.returning()
 		.get();
-	touchManga(db, mangaId);
+	if (chapterId !== undefined) {
+		db.insert(chapterCast).values({ chapterId, characterId: character.id, createdAt: now }).run();
+	}
+	touchSeries(db, seriesId);
 	enqueue(db, ownerId, 'character.develop', { characterId: character.id, feedback: '' });
 	return character.id;
 }
@@ -327,7 +340,7 @@ export function updateCharacter(
 		.set({ ...values, updatedAt: new Date() })
 		.where(eq(characters.id, characterId))
 		.run();
-	touchManga(db, character.mangaId);
+	touchSeries(db, character.seriesId);
 }
 
 /** Ask the AI to revise the profile, taking the user's feedback into account. */
@@ -342,7 +355,7 @@ export function requestDevelop(
 }
 
 /**
- * Draw a fresh set of design candidates in the manga's style. The
+ * Draw a fresh set of design candidates in the series' style. The
  * chosen reference is kept; other candidates are replaced.
  */
 export function requestCandidates(
@@ -353,7 +366,7 @@ export function requestCandidates(
 ): void {
 	const owned = ownedCharacter(db, ownerId, characterId);
 	let character = owned.character;
-	const style = readyStyle(db, owned.manga);
+	const style = readyStyle(db, owned.series);
 	if (!style) throw new CharacterError(NO_STYLE);
 	if (!character.appearance) throw new CharacterError('Describe how the character looks first.');
 	cancelJobs(
@@ -370,13 +383,22 @@ export function requestCandidates(
 			.returning()
 			.get();
 	}
-	const keep = character.referenceImageId ?? -1;
+	// Keep the reference, and any design a chapter is pinned to.
+	const keep = [
+		character.referenceImageId ?? -1,
+		...db
+			.select({ id: chapterCast.pinnedImageId })
+			.from(chapterCast)
+			.where(and(eq(chapterCast.characterId, characterId), isNotNull(chapterCast.pinnedImageId)))
+			.all()
+			.map((r) => r.id!)
+	];
 	db.delete(characterImages)
 		.where(
 			and(
 				eq(characterImages.characterId, characterId),
 				eq(characterImages.kind, 'candidate'),
-				ne(characterImages.id, keep)
+				notInArray(characterImages.id, keep)
 			)
 		)
 		.run();
@@ -420,7 +442,12 @@ export function chooseReference(
 		.set({ referenceImageId: imageId, updatedAt: new Date() })
 		.where(eq(characters.id, characterId))
 		.run();
-	touchManga(db, character.mangaId);
+	// Chapters the character joined before it had a design take this one.
+	db.update(chapterCast)
+		.set({ pinnedImageId: imageId })
+		.where(and(eq(chapterCast.characterId, characterId), isNull(chapterCast.pinnedImageId)))
+		.run();
+	touchSeries(db, character.seriesId);
 }
 
 /**
@@ -435,8 +462,8 @@ export function requestSheet(
 	only?: SheetView,
 	guidance = ''
 ): void {
-	const { character, manga } = ownedCharacter(db, ownerId, characterId);
-	const style = readyStyle(db, manga);
+	const { character, series } = ownedCharacter(db, ownerId, characterId);
+	const style = readyStyle(db, series);
 	if (!style) throw new CharacterError(NO_STYLE);
 	if (!character.referenceImageId) throw new CharacterError('Choose a reference picture first.');
 	const views = only ? [only] : SHEET_VIEWS.map((v) => v.key);
@@ -488,7 +515,7 @@ export function deleteCharacter(db: Db, ownerId: number, characterId: number): v
 		pendingJobs(db, [characterId]).map((j) => j.id)
 	);
 	db.delete(characters).where(eq(characters.id, characterId)).run();
-	touchManga(db, character.mangaId);
+	touchSeries(db, character.seriesId);
 }
 
 // ---------------------------------------------------------------------------
@@ -527,16 +554,16 @@ const developReply = z.object({
 
 export function developMessages(
 	character: Character,
-	manga: Manga,
+	owner: Series,
 	style: DrawingStyle | undefined,
 	cast: Character[],
 	feedback: string
 ) {
-	const lines = [`Manga title: ${manga.title}`];
-	if (manga.logline) lines.push(`Logline: ${manga.logline}`);
+	const lines = [`Series title: ${owner.title}`];
+	if (owner.logline) lines.push(`Logline: ${owner.logline}`);
 	if (style) {
 		lines.push(
-			`Setting and look of the manga: ${style.description}`,
+			`Setting and look of the series: ${style.description}`,
 			`Color: ${COLOR_MODES[style.colorMode].label}`
 		);
 	}
@@ -583,15 +610,15 @@ export function developMessages(
 const developHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const { characterId, feedback } = job.payload as { characterId: number; feedback: string };
 	const row = db
-		.select({ character: characters, manga: mangas })
+		.select({ character: characters, series })
 		.from(characters)
-		.innerJoin(mangas, eq(characters.mangaId, mangas.id))
+		.innerJoin(series, eq(characters.seriesId, series.id))
 		.where(eq(characters.id, characterId))
 		.get();
 	if (!row) return; // deleted meanwhile
-	const cast = db.select().from(characters).where(eq(characters.mangaId, row.manga.id)).all();
+	const cast = db.select().from(characters).where(eq(characters.seriesId, row.series.id)).all();
 	const reply = await ai.text.json(
-		developMessages(row.character, row.manga, styleForContext(db, row.manga), cast, feedback),
+		developMessages(row.character, row.series, styleForContext(db, row.series), cast, feedback),
 		developReply,
 		signal
 	);
@@ -613,15 +640,15 @@ const developHandler: JobHandler = async (job, { db, ai, signal }) => {
 const candidateHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const { imageId } = job.payload as { imageId: number };
 	const row = db
-		.select({ image: characterImages, manga: mangas })
+		.select({ image: characterImages, series })
 		.from(characterImages)
 		.innerJoin(characters, eq(characterImages.characterId, characters.id))
-		.innerJoin(mangas, eq(characters.mangaId, mangas.id))
+		.innerJoin(series, eq(characters.seriesId, series.id))
 		.where(eq(characterImages.id, imageId))
 		.get();
 	if (!row) return; // replaced by a newer set
-	const style = styleForContext(db, row.manga);
-	if (!style) throw new Error('The manga has no style.');
+	const style = styleForContext(db, row.series);
+	if (!style) throw new Error('The series has no style.');
 	const result = await ai.image.generate(
 		{
 			model: style.model,

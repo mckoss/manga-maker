@@ -13,27 +13,30 @@
 
 <div class="title-row">
 	<h1>My manga</h1>
-	<a class="button" href={resolve('/manga/new')}>New manga</a>
+	<a class="button" href={resolve('/series/new')}>New series</a>
 </div>
 
-{#if data.mangas.length === 0}
+{#if data.series.length === 0}
 	<p>
-		Manga Maker walks you through making a short comic, step by step: style, characters, locations,
-		plot, script, panels and pages.
+		Manga Maker walks you through making a comic series, step by step: its style, characters and
+		locations, then for each chapter the plot, script, panels and pages.
 	</p>
-	<p><a class="button" href={resolve('/manga/new')}>Start your first manga</a></p>
+	<p><a class="button" href={resolve('/series/new')}>Start your first series</a></p>
 {:else}
 	<ul class="collection">
-		{#each data.mangas as manga (manga.id)}
+		{#each data.series as s (s.id)}
 			<li>
-				<a href={resolve('/manga/[id]', { id: String(manga.id) })}>
-					{#if manga.thumb}
-						<img src={resolve('/assets/[hash]', { hash: manga.thumb })} alt="" loading="lazy" />
+				<a href={resolve('/series/[id]', { id: String(s.id) })}>
+					{#if s.thumb}
+						<img src={resolve('/assets/[hash]', { hash: s.thumb })} alt="" loading="lazy" />
 					{:else}
-						<div class="no-cover" aria-hidden="true">{manga.title.slice(0, 1)}</div>
+						<div class="no-cover" aria-hidden="true">{s.title.slice(0, 1)}</div>
 					{/if}
-					<strong>{manga.title}</strong>
-					<small>{STYLE_STATUS[manga.styleStatus]}</small>
+					<strong>{s.title}</strong>
+					<small
+						>{s.chapterCount}
+						{s.chapterCount === 1 ? 'chapter' : 'chapters'} · {STYLE_STATUS[s.styleStatus]}</small
+					>
 				</a>
 			</li>
 		{/each}

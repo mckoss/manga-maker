@@ -1,10 +1,10 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 
-async function newManga(page: Page, title: string) {
-	await page.goto('/manga/new');
+async function newSeries(page: Page, title: string) {
+	await page.goto('/series/new');
 	await page.getByLabel('Title').fill(title);
-	await page.getByRole('button', { name: 'Create manga' }).click();
+	await page.getByRole('button', { name: 'Create series' }).click();
 	await expect(page.getByRole('heading', { name: 'Style', level: 1 })).toBeVisible();
 }
 
@@ -20,7 +20,7 @@ function steps(page: Page) {
 }
 
 test('builds a character and chooses a reference picture', async ({ signedIn: page }) => {
-	await newManga(page, 'Cast Test');
+	await newSeries(page, 'Cast Test');
 	await readyStyle(page);
 	await steps(page).getByRole('link', { name: 'Characters' }).click();
 	await expect(page.getByRole('heading', { name: 'Characters', level: 1 })).toBeVisible();
@@ -61,7 +61,7 @@ test('builds a character and chooses a reference picture', async ({ signedIn: pa
 });
 
 test('asks for a style sample before drawing', async ({ signedIn: page }) => {
-	await newManga(page, 'No Style Yet');
+	await newSeries(page, 'No Style Yet');
 	await steps(page).getByRole('link', { name: 'Characters' }).click();
 	await expect(page.getByText('draw a sample picture of the style')).toBeVisible();
 	await page.getByLabel('Name (optional)').fill('Goro');
@@ -71,7 +71,7 @@ test('asks for a style sample before drawing', async ({ signedIn: page }) => {
 });
 
 test('deletes a character', async ({ signedIn: page }) => {
-	await newManga(page, 'Delete Cast');
+	await newSeries(page, 'Delete Cast');
 	await steps(page).getByRole('link', { name: 'Characters' }).click();
 	await page.getByLabel('Name (optional)').fill('Temp');
 	await page.getByRole('button', { name: 'Add character' }).click();

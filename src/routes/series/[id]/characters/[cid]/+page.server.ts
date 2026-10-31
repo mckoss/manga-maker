@@ -24,7 +24,7 @@ export const load: PageServerLoad = ({ params, locals }) => {
 		if (e instanceof CharacterError) error(404, e.message);
 		throw e;
 	}
-	if (detail.manga.id !== Number(params.id)) error(404, 'Character not found.');
+	if (detail.series.id !== Number(params.id)) error(404, 'Character not found.');
 	return {
 		...detail,
 		roles: Object.entries(ROLES).map(([value, label]) => ({ value, label }))
@@ -96,6 +96,6 @@ export const actions: Actions = {
 	delete: async ({ locals, params }) => {
 		const result = await run(() => deleteCharacter(getDb(), locals.user!.id, Number(params.cid)));
 		if (result) return result;
-		redirect(303, `/manga/${params.id}/characters`);
+		redirect(303, `/series/${params.id}/characters`);
 	}
 };

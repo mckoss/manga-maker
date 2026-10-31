@@ -11,7 +11,7 @@ import { Worker } from './jobs';
 import { createUser } from './auth/users';
 import { fakeReply } from './ai';
 import { requestPictures, requestPrompt, styleJobHandlers } from './styles';
-import { createManga, deleteManga, startStyle } from './mangas';
+import { createSeries, deleteSeries, startStyle } from './series';
 import {
 	CANDIDATE_COUNT,
 	CANDIDATE_SIZE,
@@ -30,6 +30,14 @@ import {
 	sheetPrompt,
 	updateCharacter
 } from './characters';
+import {
+	addToCast,
+	chapterCastView,
+	createChapter,
+	listChapters,
+	removeFromCast,
+	useNewestDesign
+} from './chapters';
 
 let db: Db;
 let worker: Worker;
@@ -37,7 +45,7 @@ let image: FakeImageModel;
 let text: FakeTextModel;
 let owner: number;
 let other: number;
-let mangaId: number;
+let seriesId: number;
 let styleId: number;
 
 function reply(messages: ChatMessage[]) {
@@ -64,12 +72,12 @@ beforeEach(async () => {
 	worker = new Worker(db, { image, text }, { ...styleJobHandlers, ...characterJobHandlers });
 	owner = (await createUser(db, 'kenji', 'a long enough password')).id;
 	other = (await createUser(db, 'yuki', 'a long enough password')).id;
-	mangaId = createManga(db, owner, {
+	seriesId = createSeries(db, owner, {
 		title: 'Ronin Road',
 		logline: 'A swordsman walks home.',
 		readingDirection: 'rtl'
 	});
-	styleId = startStyle(db, owner, mangaId, {
+	styleId = startStyle(db, owner, seriesId, {
 		description: 'Edo-period villages',
 		colorMode: 'bw',
 		model: 'qwen-image'
@@ -86,14 +94,14 @@ async function readyStyle() {
 const brief = { name: '', role: 'protagonist' as const, brief: 'a runaway girl with a staff' };
 
 describe('characters', () => {
-	it('develops a profile from a brief, with the manga and cast as context', async () => {
-		const first = createCharacter(db, owner, mangaId, {
+	it('develops a profile from a brief, with the series and cast as context', async () => {
+		const first = createCharacter(db, owner, seriesId, {
 			...brief,
 			name: 'Goro',
 			brief: 'old monk'
 		});
 		await worker.drain();
-		const id = createCharacter(db, owner, mangaId, brief);
+		const id = createCharacter(db, owner, seriesId, brief);
 		await worker.drain();
 
 		const c = getCharacter(db, owner, id).character;
@@ -105,9 +113,9 @@ describe('characters', () => {
 		expect(c.notes).toBe('Drafted.');
 
 		const sent = text.calls.at(-1)![1].content;
-		expect(sent).toContain('Manga title: Ronin Road');
+		expect(sent).toContain('Series title: Ronin Road');
 		expect(sent).toContain('Logline: A swordsman walks home.');
-		expect(sent).toContain('Setting and look of the manga: Edo-period villages');
+		expect(sent).toContain('Setting and look of the series: Edo-period villages');
 		expect(sent).toContain('a runaway girl with a staff');
 		expect(sent).toContain('- Goro (protagonist)');
 		// The user's chosen name is kept.
@@ -115,13 +123,13 @@ describe('characters', () => {
 	});
 
 	it('needs a name or a description', () => {
-		expect(() => createCharacter(db, owner, mangaId, { ...brief, brief: ' ' })).toThrow(
+		expect(() => createCharacter(db, owner, seriesId, { ...brief, brief: ' ' })).toThrow(
 			CharacterError
 		);
 	});
 
 	it('revises with feedback and keeps edits', async () => {
-		const id = createCharacter(db, owner, mangaId, brief);
+		const id = createCharacter(db, owner, seriesId, brief);
 		await worker.drain();
 		const c = getCharacter(db, owner, id).character;
 		updateCharacter(db, owner, id, { ...c, appearance: 'short and round' });
@@ -134,7 +142,7 @@ describe('characters', () => {
 	});
 
 	it('draws candidates in the style once it is ready, then keeps the chosen reference', async () => {
-		const id = createCharacter(db, owner, mangaId, brief);
+		const id = createCharacter(db, owner, seriesId, brief);
 		await worker.drain();
 		expect(() => requestCandidates(db, owner, id)).toThrow(/sample picture/);
 
@@ -153,7 +161,7 @@ describe('characters', () => {
 
 		const chosen = detail.candidates[2];
 		chooseReference(db, owner, id, chosen.id);
-		expect(listCharacters(db, owner, mangaId)[0].thumb).toBe(chosen.thumbHash);
+		expect(listCharacters(db, owner, seriesId)[0].thumb).toBe(chosen.thumbHash);
 
 		// New candidates replace the others but keep the reference.
 		requestCandidates(db, owner, id, { newSeed: true });
@@ -165,7 +173,7 @@ describe('characters', () => {
 
 	it('flags pictures drawn from an older description or style', async () => {
 		await readyStyle();
-		const id = createCharacter(db, owner, mangaId, brief);
+		const id = createCharacter(db, owner, seriesId, brief);
 		await worker.drain();
 		requestCandidates(db, owner, id);
 		await worker.drain();
@@ -180,8 +188,8 @@ describe('characters', () => {
 
 	it('only accepts a finished picture of the same character as reference', async () => {
 		await readyStyle();
-		const a = createCharacter(db, owner, mangaId, brief);
-		const b = createCharacter(db, owner, mangaId, { ...brief, name: 'Goro' });
+		const a = createCharacter(db, owner, seriesId, brief);
+		const b = createCharacter(db, owner, seriesId, { ...brief, name: 'Goro' });
 		await worker.drain();
 		requestCandidates(db, owner, a);
 		const pending = getCharacter(db, owner, a).candidates[0];
@@ -192,7 +200,7 @@ describe('characters', () => {
 
 	it('redraws a character sheet from the reference, view by view', async () => {
 		await readyStyle();
-		const id = createCharacter(db, owner, mangaId, brief);
+		const id = createCharacter(db, owner, seriesId, brief);
 		await worker.drain();
 		expect(() => requestSheet(db, owner, id)).toThrow(/reference picture first/);
 		requestCandidates(db, owner, id);
@@ -236,24 +244,84 @@ describe('characters', () => {
 	});
 
 	it("keeps users out of each other's characters", async () => {
-		const id = createCharacter(db, owner, mangaId, brief);
-		expect(() => createCharacter(db, other, mangaId, brief)).toThrow();
+		const id = createCharacter(db, owner, seriesId, brief);
+		expect(() => createCharacter(db, other, seriesId, brief)).toThrow();
 		expect(() => getCharacter(db, other, id)).toThrow(CharacterError);
-		expect(() => listCharacters(db, other, mangaId)).toThrow();
+		expect(() => listCharacters(db, other, seriesId)).toThrow();
 		expect(() => deleteCharacter(db, other, id)).toThrow(CharacterError);
 	});
 
-	it('deleting cancels pending work; deleting the manga removes its cast', async () => {
+	it('deleting cancels pending work; deleting the series removes its cast', async () => {
 		await readyStyle();
-		const id = createCharacter(db, owner, mangaId, brief);
+		const id = createCharacter(db, owner, seriesId, brief);
 		await worker.drain();
 		requestCandidates(db, owner, id);
 		deleteCharacter(db, owner, id);
 		expect(db.select().from(jobs).where(eq(jobs.status, 'canceled')).all()).toHaveLength(
 			CANDIDATE_COUNT
 		);
-		createCharacter(db, owner, mangaId, brief);
-		deleteManga(db, owner, mangaId);
+		createCharacter(db, owner, seriesId, brief);
+		deleteSeries(db, owner, seriesId);
 		expect(db.select().from(characterImages).all()).toEqual([]);
+	});
+});
+
+describe('chapter cast', () => {
+	/** A character with finished candidates. */
+	async function designed(name = 'Aiko') {
+		const id = createCharacter(db, owner, seriesId, { ...brief, name });
+		await worker.drain();
+		requestCandidates(db, owner, id);
+		await worker.drain();
+		return { id, candidates: getCharacter(db, owner, id).candidates };
+	}
+
+	it('joins the chapter it was made in, and is picked into later ones', async () => {
+		await readyStyle();
+		const [first] = listChapters(db, owner, seriesId);
+		const aiko = createCharacter(db, owner, seriesId, brief, first.id);
+		const second = createChapter(db, owner, seriesId, { title: 'The Pass', logline: '' });
+		expect(chapterCastView(db, owner, seriesId, first.id)).toMatchObject([
+			{ id: aiko, inCast: true }
+		]);
+		expect(chapterCastView(db, owner, seriesId, second)).toMatchObject([
+			{ id: aiko, inCast: false }
+		]);
+		addToCast(db, owner, seriesId, second, aiko);
+		addToCast(db, owner, seriesId, second, aiko); // already in: no change
+		expect(listChapters(db, owner, seriesId).map((c) => c.castSize)).toEqual([1, 1]);
+		removeFromCast(db, owner, seriesId, first.id, aiko);
+		expect(chapterCastView(db, owner, seriesId, first.id)[0].inCast).toBe(false);
+		// Still in the series.
+		expect(listCharacters(db, owner, seriesId)).toHaveLength(1);
+		expect(() => addToCast(db, other, seriesId, second, aiko)).toThrow();
+	});
+
+	it('pins the design a chapter was made with until it moves to the newest', async () => {
+		await readyStyle();
+		const [chapter] = listChapters(db, owner, seriesId);
+		const { id, candidates } = await designed();
+		addToCast(db, owner, seriesId, chapter.id, id);
+		// No design yet: the first one chosen is pinned.
+		chooseReference(db, owner, id, candidates[0].id);
+		let view = chapterCastView(db, owner, seriesId, chapter.id)[0];
+		expect(view).toMatchObject({ pinnedThumb: candidates[0].thumbHash, newerThumb: null });
+
+		// A redesign in the series leaves the chapter on its design, which is kept.
+		chooseReference(db, owner, id, candidates[1].id);
+		requestCandidates(db, owner, id, { newSeed: true });
+		await worker.drain();
+		view = chapterCastView(db, owner, seriesId, chapter.id)[0];
+		expect(view).toMatchObject({
+			pinnedThumb: candidates[0].thumbHash,
+			newerThumb: candidates[1].thumbHash
+		});
+		const kept = getCharacter(db, owner, id).candidates.map((c) => c.id);
+		expect(kept).toContain(candidates[0].id);
+		expect(kept).toContain(candidates[1].id);
+
+		useNewestDesign(db, owner, seriesId, chapter.id, id);
+		view = chapterCastView(db, owner, seriesId, chapter.id)[0];
+		expect(view).toMatchObject({ pinnedThumb: candidates[1].thumbHash, newerThumb: null });
 	});
 });

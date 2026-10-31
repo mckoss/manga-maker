@@ -83,11 +83,21 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
       questions can be skipped and never block the prompt or samples
 - [x] Plan: series and chapters; every generation kept
 
+## Milestone 2e: series and chapters
+
+- [x] Each manga is now a series (same id) with one chapter holding its
+      whole cast; `/manga/...` links redirect
+- [x] The series owns the style and characters; chapters are added,
+      renamed and deleted (later ones renumber)
+- [x] A chapter's Cast page picks characters from the series; a character
+      made there joins the series and the chapter
+- [x] A chapter pins each character's design (reference picture); a
+      redesign shows as "Newer design" until the chapter moves to it, and
+      pinned designs are never cleared away by new candidates
+- [ ] Chapter locations picker, once locations exist (milestone 3)
+
 ## Next
 
-- [ ] Series and chapters: style, characters and locations move to the
-      series; a chapter picks its cast and locations and pins their versions
-      (v0.10; see PLAN.md, "Series and chapters")
 - [ ] Characters on the versioned items layer: every profile generation kept
       (v0.11)
 

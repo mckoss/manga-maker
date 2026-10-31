@@ -4,13 +4,14 @@
 	let { data, form }: PageProps = $props();
 </script>
 
-<svelte:head><title>New manga · Manga Maker</title></svelte:head>
+<svelte:head><title>New series · Manga Maker</title></svelte:head>
 
-<h1>New manga</h1>
+<h1>New series</h1>
 
 <p class="hint">
-	A title is all you need to start; you can change everything later. Next you'll choose how it is
-	drawn.
+	A series has one style and one cast, shared by its chapters; a one-off story is simply a series
+	with one chapter. A title is all you need to start, and you can change everything later. Next
+	you'll choose how it is drawn.
 </p>
 
 <form method="POST" class="card wide">
@@ -49,5 +50,5 @@
 			</label>
 		{/each}
 	</fieldset>
-	<button type="submit">Create manga</button>
+	<button type="submit">Create series</button>
 </form>

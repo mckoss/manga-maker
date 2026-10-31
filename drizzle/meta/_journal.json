@@ -50,6 +50,13 @@
       "when": 1793449852558,
       "tag": "0006_style_items",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1793456311924,
+      "tag": "0007_series_chapters",
+      "breakpoints": true
     }
   ]
 }

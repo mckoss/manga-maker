@@ -1,4 +1,4 @@
-import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, uniqueIndex, primaryKey } from 'drizzle-orm/sqlite-core';
 
 export const users = sqliteTable('users', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
@@ -50,7 +50,7 @@ export type Job = typeof jobs.$inferSelect;
 export type ColorMode = 'bw' | 'grayscale' | 'limited' | 'color';
 
 /**
- * A manga's drawing style. Its description, prompt, scenes and sample
+ * A series' drawing style. Its description, prompt, scenes and sample
  * pictures are versioned items (see `items`) scoped "style:<id>".
  */
 export const styles = sqliteTable('styles', {
@@ -128,30 +128,51 @@ export type Version = typeof versions.$inferSelect;
 
 export type ReadingDirection = 'rtl' | 'ltr';
 
-/** A comic: the top-level thing a user works on. Everything else belongs to one. */
-export const mangas = sqliteTable('mangas', {
+/**
+ * The top-level thing a user works on: one style and a cast shared by its
+ * chapters. A one-off story is a series of one chapter.
+ */
+export const series = sqliteTable('series', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	ownerId: integer('owner_id')
 		.notNull()
 		.references(() => users.id, { onDelete: 'cascade' }),
 	title: text('title').notNull(),
-	/** One or two sentences: what the story is about. */
+	/** One or two sentences: what the series is about. */
 	logline: text('logline').notNull().default(''),
 	readingDirection: text('reading_direction').$type<ReadingDirection>().notNull().default('rtl'),
-	/** This manga's own style; null until one is started. */
+	/** The series' own style; null until one is started. */
 	styleId: integer('style_id').references(() => styles.id, { onDelete: 'set null' }),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 });
 
-export type Manga = typeof mangas.$inferSelect;
+export type Series = typeof series.$inferSelect;
 
-/** A member of a manga's cast. The look fields drive every picture of them. */
+/** One story of a series, with its own plot, script and pages. */
+export const chapters = sqliteTable('chapters', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	seriesId: integer('series_id')
+		.notNull()
+		.references(() => series.id, { onDelete: 'cascade' }),
+	/** Its place in the series, from 1. */
+	number: integer('number').notNull(),
+	/** Optional; shown as "Chapter <number>" when empty. */
+	title: text('title').notNull().default(''),
+	/** One or two sentences: what happens in this chapter. */
+	logline: text('logline').notNull().default(''),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+});
+
+export type Chapter = typeof chapters.$inferSelect;
+
+/** A member of a series' cast. The look fields drive every picture of them. */
 export const characters = sqliteTable('characters', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
-	mangaId: integer('manga_id')
+	seriesId: integer('series_id')
 		.notNull()
-		.references(() => mangas.id, { onDelete: 'cascade' }),
+		.references(() => series.id, { onDelete: 'cascade' }),
 	name: text('name').notNull().default(''),
 	/** protagonist | antagonist | supporting | minor */
 	role: text('role').notNull().default('supporting'),
@@ -205,3 +226,26 @@ export const characterImages = sqliteTable('character_images', {
 });
 
 export type CharacterImage = typeof characterImages.$inferSelect;
+
+/**
+ * A character appearing in a chapter, drawn from the design (reference
+ * picture) pinned when it joined, so a later redesign in the series does not
+ * change the chapter until the user moves it to the newer design.
+ */
+export const chapterCast = sqliteTable(
+	'chapter_cast',
+	{
+		chapterId: integer('chapter_id')
+			.notNull()
+			.references(() => chapters.id, { onDelete: 'cascade' }),
+		characterId: integer('character_id')
+			.notNull()
+			.references(() => characters.id, { onDelete: 'cascade' }),
+		/** Null until the character has a reference picture. */
+		pinnedImageId: integer('pinned_image_id').references(() => characterImages.id, {
+			onDelete: 'set null'
+		}),
+		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
+	},
+	(t) => [primaryKey({ columns: [t.chapterId, t.characterId] })]
+);

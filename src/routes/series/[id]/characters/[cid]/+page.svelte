@@ -20,7 +20,7 @@
 			update({ reset: false });
 
 	const asset = (hash: string) => resolve('/assets/[hash]', { hash });
-	let id = $derived(String(data.manga.id));
+	let id = $derived(String(data.series.id));
 	let c = $derived(data.character);
 	let drawing = $derived(data.candidates.some((i) => i.pending));
 	let anyStale = $derived(data.candidates.some((i) => i.assetHash && (i.stale || i.oldStyle)));
@@ -29,9 +29,10 @@
 	let sheetOutdated = $derived(data.sheet.some((s) => s.image?.assetHash && s.image.outdated));
 </script>
 
-<svelte:head><title>{c.name || 'Character'} · {data.manga.title} · Manga Maker</title></svelte:head>
+<svelte:head><title>{c.name || 'Character'} · {data.series.title} · Manga Maker</title></svelte:head
+>
 
-<p><a href={resolve('/manga/[id]/characters', { id })}>← Characters</a></p>
+<p><a href={resolve('/series/[id]/characters', { id })}>← Characters</a></p>
 
 <div class="title-row">
 	<h1>{c.name || 'New character'}</h1>
@@ -155,7 +156,7 @@
 	<h2>Design options</h2>
 	{#if !data.style}
 		<p class="hint">
-			Pictures are drawn in the manga's style: <a href={resolve('/manga/[id]/style', { id })}
+			Pictures are drawn in the series' style: <a href={resolve('/series/[id]/style', { id })}
 				>draw a sample picture of the style</a
 			> first.
 		</p>

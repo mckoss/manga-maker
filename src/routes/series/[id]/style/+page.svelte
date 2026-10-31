@@ -9,14 +9,14 @@
 	const asset = (hash: string) => resolve('/assets/[hash]', { hash });
 </script>
 
-<svelte:head><title>Style · {data.manga.title} · Manga Maker</title></svelte:head>
+<svelte:head><title>Style · {data.series.title} · Manga Maker</title></svelte:head>
 
 {#if data.editor}
 	<StyleEditor ed={data.editor} colorModes={data.colorModes} models={data.models} {form} />
 {:else}
 	<h1>Style</h1>
 	<p class="hint">
-		The style is how your manga is drawn: line work, shading, color. Describe the look in your own
+		The style is how your series is drawn: line work, shading, color. Describe the look in your own
 		words—favorite manga, mood, how heavy the inking is, the setting and era. The AI turns it into a
 		style prompt and test scenes; you refine it by looking at sample pictures.
 	</p>
@@ -62,7 +62,7 @@
 
 	{#if data.reusable.length}
 		<h2>Or reuse a style</h2>
-		<p class="hint">Start from a copy of the style of another of your manga.</p>
+		<p class="hint">Start from a copy of the style of another of your series.</p>
 		<ul class="reuse">
 			{#each data.reusable as style (style.id)}
 				<li class="card wide">
