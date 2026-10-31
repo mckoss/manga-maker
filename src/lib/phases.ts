@@ -6,9 +6,9 @@ export const PHASES = [
 	{
 		key: 'style',
 		label: 'Style',
-		summary: 'How the comic is drawn: line work, shading, colour.',
+		summary: 'How the comic is drawn: line work, shading, color.',
 		detail:
-			'Describe a look, refine it by looking at sample pictures, and approve it. Everything else is drawn in this style.'
+			'Describe a look, refine it by looking at sample pictures, and lock in what you like. Everything else is drawn in this style.'
 	},
 	{
 		key: 'characters',

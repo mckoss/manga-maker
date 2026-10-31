@@ -88,7 +88,8 @@ export const actions: Actions = {
 				getDb(),
 				locals.user!.id,
 				Number(params.cid),
-				isSheetView(view) ? view : undefined
+				isSheetView(view) ? view : undefined,
+				String(form.get('guidance') ?? '')
 			)
 		);
 	},

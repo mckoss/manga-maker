@@ -8,13 +8,11 @@ async function newManga(page: Page, title: string) {
 	await expect(page.getByRole('heading', { name: 'Style', level: 1 })).toBeVisible();
 }
 
-async function approveStyle(page: Page) {
+async function readyStyle(page: Page) {
 	await page.getByLabel('Describe the look').fill('Edo-period ink');
 	await page.getByRole('button', { name: 'Start the style' }).click();
-	await expect(page.getByLabel('Style prompt')).not.toHaveValue('');
-	await page.getByRole('button', { name: 'Generate samples' }).click();
-	await page.getByRole('button', { name: 'Approve this style' }).click();
-	await expect(page.getByText('v1 approved')).toBeVisible();
+	await page.getByRole('button', { name: /Draw missing and out-of-date pictures/ }).click();
+	await expect(page.getByRole('img', { name: 'Action sample' })).toBeVisible();
 }
 
 function steps(page: Page) {
@@ -23,7 +21,7 @@ function steps(page: Page) {
 
 test('builds a character and chooses a reference picture', async ({ signedIn: page }) => {
 	await newManga(page, 'Cast Test');
-	await approveStyle(page);
+	await readyStyle(page);
 	await steps(page).getByRole('link', { name: 'Characters' }).click();
 	await expect(page.getByRole('heading', { name: 'Characters', level: 1 })).toBeVisible();
 
@@ -35,7 +33,7 @@ test('builds a character and chooses a reference picture', async ({ signedIn: pa
 	await expect(page.getByLabel('Appearance')).toHaveValue(/long black hair/);
 	await expect(page.getByText('AI story editor:')).toBeVisible();
 
-	await page.getByLabel('Outfit and props').fill('a red travelling kimono');
+	await page.getByLabel('Outfit and props').fill('a red traveling kimono');
 	await page.getByRole('button', { name: 'Save', exact: true }).click();
 	await expect(page.getByText('Saved.')).toBeVisible();
 
@@ -50,7 +48,10 @@ test('builds a character and chooses a reference picture', async ({ signedIn: pa
 	await page.getByRole('button', { name: 'Draw the character sheet' }).click();
 	await expect(page.getByRole('img', { name: 'Aiko: Back' })).toBeVisible();
 	await expect(page.getByRole('img', { name: /^Aiko: / })).toHaveCount(8);
-	await page.getByRole('button', { name: 'Redraw Side' }).click();
+	const side = page.getByRole('figure').filter({ hasText: 'Side' });
+	await side.getByText('Redraw…').click();
+	await side.getByLabel('Guidance (optional)').fill('looking over her shoulder');
+	await side.getByRole('button', { name: 'Redraw Side' }).click();
 	await expect(page.getByRole('img', { name: 'Aiko: Side' })).toBeVisible();
 
 	await page.getByRole('link', { name: '← Characters' }).click();
@@ -59,10 +60,10 @@ test('builds a character and chooses a reference picture', async ({ signedIn: pa
 	).toBeVisible();
 });
 
-test('asks for an approved style before drawing', async ({ signedIn: page }) => {
+test('asks for a style sample before drawing', async ({ signedIn: page }) => {
 	await newManga(page, 'No Style Yet');
 	await steps(page).getByRole('link', { name: 'Characters' }).click();
-	await expect(page.getByText('approve a style')).toBeVisible();
+	await expect(page.getByText('draw a sample picture of the style')).toBeVisible();
 	await page.getByLabel('Name (optional)').fill('Goro');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Goro', level: 1 })).toBeVisible();

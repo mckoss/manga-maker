@@ -1,11 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.js';
 import {
-	approvedStyle,
 	CharacterError,
 	createCharacter,
 	isRole,
 	listCharacters,
+	readyStyle,
 	ROLES
 } from '#lib/server/characters.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -16,7 +16,7 @@ export const load: PageServerLoad = async ({ locals, parent }) => {
 	return {
 		cast: listCharacters(db, locals.user!.id, manga.id),
 		roles: Object.entries(ROLES).map(([value, label]) => ({ value, label })),
-		styleApproved: Boolean(approvedStyle(db, manga))
+		styleReady: Boolean(readyStyle(db, manga))
 	};
 };
 

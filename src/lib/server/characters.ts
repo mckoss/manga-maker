@@ -6,20 +6,24 @@ import {
 	characters,
 	jobs,
 	mangas,
-	styles,
-	styleVersions,
 	type Character,
 	type CharacterImage,
 	type ColorMode,
 	type Job,
-	type Manga,
-	type StyleVersion
+	type Manga
 } from './db/schema';
-import { randomSeed, type ImageModelId } from './ai/image';
+import { randomSeed } from './ai/image';
 import { putImage, readAsset } from './assets';
 import { cancelJobs, enqueue, type JobHandler } from './jobs';
 import { ownedManga, touchManga } from './mangas';
-import { COLOR_MODES, compilePrompt, positiveOnly, sentence } from './styles';
+import {
+	COLOR_MODES,
+	compilePrompt,
+	drawingStyle,
+	positiveOnly,
+	sentence,
+	type DrawingStyle
+} from './styles';
 
 export class CharacterError extends Error {}
 
@@ -43,11 +47,11 @@ export const CANDIDATE_SIZE = { width: 768, height: 1344 };
 
 /**
  * Restated at the end of character prompts: a long description pulls the
- * image toward colour ("indigo kimono") unless the tones are repeated.
+ * image toward color ("indigo kimono") unless the tones are repeated.
  */
 const TONE_REMINDER: Record<ColorMode, string> = {
 	bw: 'Drawn entirely in black ink on white paper.',
-	greyscale: 'Drawn entirely in shades of grey.',
+	grayscale: 'Drawn entirely in shades of gray.',
 	limited: '',
 	color: ''
 };
@@ -62,7 +66,7 @@ const uncapitalize = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  * and crop at the thighs.
  */
 export function characterPrompt(
-	style: Pick<StyleVersion, 'colorMode' | 'prompt'>,
+	style: Pick<DrawingStyle, 'colorMode' | 'prompt'>,
 	character: Pick<Character, 'age' | 'appearance' | 'outfit'>
 ): string {
 	const subject = [
@@ -112,10 +116,15 @@ export function isSheetView(value: string): value is SheetView {
 	return SHEET_VIEWS.some((v) => v.key === value);
 }
 
-/** The edit instruction for one sheet view, in the manga's colour mode. */
-export function sheetPrompt(colorMode: ColorMode, view: SheetView): string {
+/**
+ * The edit instruction for one sheet view, in the manga's color mode, with
+ * the user's guidance for that one redraw ("looking over her shoulder").
+ */
+export function sheetPrompt(colorMode: ColorMode, view: SheetView, guidance = ''): string {
 	const { instruction } = SHEET_VIEWS.find((v) => v.key === view)!;
-	return [instruction, KEEP, TONE_REMINDER[colorMode]].filter(Boolean).join(' ');
+	return [instruction, sentence(guidance), KEEP, TONE_REMINDER[colorMode]]
+		.filter(Boolean)
+		.join(' ');
 }
 
 // ---------------------------------------------------------------------------
@@ -132,29 +141,21 @@ function ownedCharacter(db: Db, ownerId: number, characterId: number) {
 	return row;
 }
 
-/** The manga's approved style version, which every character picture is drawn in. */
-export function approvedStyle(db: Db, manga: Pick<Manga, 'styleId'>): StyleVersion | undefined {
-	if (!manga.styleId) return undefined;
-	const style = db.select().from(styles).where(eq(styles.id, manga.styleId)).get();
-	if (!style?.activeVersionId) return undefined;
-	return db.select().from(styleVersions).where(eq(styleVersions.id, style.activeVersionId)).get();
+/**
+ * The manga's style, which every character picture is drawn in, once it is
+ * ready (it has a prompt and a sample picture).
+ */
+export function readyStyle(db: Db, manga: Pick<Manga, 'styleId'>): DrawingStyle | undefined {
+	const style = manga.styleId ? drawingStyle(db, manga.styleId) : undefined;
+	return style?.ready ? style : undefined;
 }
 
-/**
- * The style version that tells the AI about the manga's setting: the approved
- * one, or the draft while there is none yet.
- */
-function styleForContext(db: Db, manga: Pick<Manga, 'styleId'>): StyleVersion | undefined {
-	if (!manga.styleId) return undefined;
-	return (
-		approvedStyle(db, manga) ??
-		db
-			.select()
-			.from(styleVersions)
-			.where(and(eq(styleVersions.styleId, manga.styleId), eq(styleVersions.status, 'draft')))
-			.get()
-	);
+/** The style that tells the AI about the manga's setting, ready or not. */
+function styleForContext(db: Db, manga: Pick<Manga, 'styleId'>): DrawingStyle | undefined {
+	return manga.styleId ? drawingStyle(db, manga.styleId) : undefined;
 }
+
+const NO_STYLE = 'Draw at least one sample picture of the manga’s style before drawing characters.';
 
 /** Unfinished jobs for the given characters. */
 function pendingJobs(db: Db, characterIds: number[]): Job[] {
@@ -207,7 +208,7 @@ export function listCharacters(db: Db, ownerId: number, mangaId: number) {
 
 export function getCharacter(db: Db, ownerId: number, characterId: number) {
 	const { character, manga } = ownedCharacter(db, ownerId, characterId);
-	const style = approvedStyle(db, manga);
+	const style = readyStyle(db, manga);
 	const pending = pendingJobs(db, [characterId]);
 	const pendingIds = new Set(pending.map((j) => j.id));
 	const images = imagesOf(db, characterId);
@@ -236,8 +237,8 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 		error: img.jobId !== null ? (failed.get(img.jobId) ?? null) : null,
 		/** Drawn from an older description than the current one. */
 		stale: current !== null && img.prompt !== current,
-		/** Drawn in a style version other than the approved one. */
-		oldStyle: style !== undefined && img.styleVersionId !== style.id
+		/** Drawn from a style prompt other than the current one. */
+		oldStyle: style !== undefined && img.stylePromptVersionId !== style.promptVersionId
 	}));
 	const sheet = SHEET_VIEWS.map((view) => {
 		const image = decorated.findLast((img) => img.kind === 'sheet' && img.view === view.key);
@@ -349,7 +350,7 @@ export function requestDevelop(
 }
 
 /**
- * Draw a fresh set of design candidates in the manga's approved style. The
+ * Draw a fresh set of design candidates in the manga's style. The
  * chosen reference is kept; other candidates are replaced.
  */
 export function requestCandidates(
@@ -360,8 +361,8 @@ export function requestCandidates(
 ): void {
 	const owned = ownedCharacter(db, ownerId, characterId);
 	let character = owned.character;
-	const style = approvedStyle(db, owned.manga);
-	if (!style) throw new CharacterError('Approve the manga’s style before drawing characters.');
+	const style = readyStyle(db, owned.manga);
+	if (!style) throw new CharacterError(NO_STYLE);
 	if (!character.appearance) throw new CharacterError('Describe how the character looks first.');
 	cancelJobs(
 		db,
@@ -396,7 +397,7 @@ export function requestCandidates(
 				kind: 'candidate',
 				prompt,
 				seed: character.seed + i,
-				styleVersionId: style.id,
+				stylePromptVersionId: style.promptVersionId,
 				createdAt: new Date()
 			})
 			.returning()
@@ -431,13 +432,20 @@ export function chooseReference(
 }
 
 /**
- * Redraw sheet views from the reference picture: every view, or just one.
- * Each round uses new seeds, so redrawing one view gives a different result.
+ * Redraw sheet views from the reference picture: every view, or just one,
+ * with the user's guidance for it. Each round uses new seeds, so redrawing
+ * one view gives a different result.
  */
-export function requestSheet(db: Db, ownerId: number, characterId: number, only?: SheetView): void {
+export function requestSheet(
+	db: Db,
+	ownerId: number,
+	characterId: number,
+	only?: SheetView,
+	guidance = ''
+): void {
 	const { character, manga } = ownedCharacter(db, ownerId, characterId);
-	const style = approvedStyle(db, manga);
-	if (!style) throw new CharacterError('Approve the manga’s style before drawing characters.');
+	const style = readyStyle(db, manga);
+	if (!style) throw new CharacterError(NO_STYLE);
 	if (!character.referenceImageId) throw new CharacterError('Choose a reference picture first.');
 	const views = only ? [only] : SHEET_VIEWS.map((v) => v.key);
 	const old = db
@@ -469,9 +477,9 @@ export function requestSheet(db: Db, ownerId: number, characterId: number, only?
 				kind: 'sheet',
 				view,
 				sourceImageId: character.referenceImageId,
-				prompt: sheetPrompt(style.colorMode, view),
+				prompt: sheetPrompt(style.colorMode, view, only ? guidance : ''),
 				seed: seed + i,
-				styleVersionId: style.id,
+				stylePromptVersionId: style.promptVersionId,
 				createdAt: new Date()
 			})
 			.returning()
@@ -505,13 +513,13 @@ Reply with only a JSON object with these keys (all strings):
 - "backstory": two or three sentences of history that matters to the story.
 - "speech": how they talk, in one sentence (vocabulary, rhythm, verbal habits).
 - "age": a short phrase, for example "a woman in her early twenties".
-- "appearance": 25 to 60 words an image model can draw: build and height, face, eyes, hair (style and colour), skin, distinguishing marks. Physical and visible only; no personality.
+- "appearance": 25 to 60 words an image model can draw: build and height, face, eyes, hair (style and color), skin, distinguishing marks. Physical and visible only; no personality.
 - "outfit": 15 to 40 words: their usual clothes and any signature props, right for the setting and era.
 - "notes": two or three plain-language sentences to the user about the choices you made and what they might decide next.
 
 The image model reads negation as a request ("no hat" draws a hat), so never write "no", "not" or "without" in "appearance" or "outfit": describe only what is there.
 
-When the manga is not in full colour, describe hair, eyes, skin and clothing in tones (black, white, dark, pale, light grey) and patterns, never in hues: a word like "indigo" or "red" makes the image model paint in colour.`;
+When the manga is not in full color, describe hair, eyes, skin and clothing in tones (black, white, dark, pale, light gray) and patterns, never in hues: a word like "indigo" or "red" makes the image model paint in color.`;
 
 const developReply = z.object({
 	name: z.string().default(''),
@@ -528,7 +536,7 @@ const developReply = z.object({
 export function developMessages(
 	character: Character,
 	manga: Manga,
-	style: StyleVersion | undefined,
+	style: DrawingStyle | undefined,
 	cast: Character[],
 	feedback: string
 ) {
@@ -537,7 +545,7 @@ export function developMessages(
 	if (style) {
 		lines.push(
 			`Setting and look of the manga: ${style.description}`,
-			`Colour: ${COLOR_MODES[style.colorMode].label}`
+			`Color: ${COLOR_MODES[style.colorMode].label}`
 		);
 	}
 	const others = cast.filter((c) => c.id !== character.id && c.name);
@@ -613,15 +621,18 @@ const developHandler: JobHandler = async (job, { db, ai, signal }) => {
 const candidateHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const { imageId } = job.payload as { imageId: number };
 	const row = db
-		.select({ image: characterImages, version: styleVersions })
+		.select({ image: characterImages, manga: mangas })
 		.from(characterImages)
-		.innerJoin(styleVersions, eq(characterImages.styleVersionId, styleVersions.id))
+		.innerJoin(characters, eq(characterImages.characterId, characters.id))
+		.innerJoin(mangas, eq(characters.mangaId, mangas.id))
 		.where(eq(characterImages.id, imageId))
 		.get();
 	if (!row) return; // replaced by a newer set
+	const style = styleForContext(db, row.manga);
+	if (!style) throw new Error('The manga has no style.');
 	const result = await ai.image.generate(
 		{
-			model: row.version.model as ImageModelId,
+			model: style.model,
 			prompt: row.image.prompt,
 			seed: row.image.seed,
 			...CANDIDATE_SIZE

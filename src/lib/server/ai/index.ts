@@ -9,17 +9,34 @@ export interface AiServices {
 	text: TextModel;
 }
 
-/** A canned style draft, so the app is usable end to end without Ollama. */
-function fakeStyleReply() {
+/**
+ * A canned style prompt, so the app is usable end to end without Ollama.
+ * The user's feedback is added to it, so a rewrite changes the prompt.
+ */
+function fakePromptReply(request: string) {
+	const feedback = request.match(/^The user's feedback: (.*)$/m)?.[1];
 	return {
-		prompt:
+		prompt: [
 			'manga illustration, confident ink line art, screentone shading, clear silhouettes, expressive faces',
+			feedback
+		]
+			.filter(Boolean)
+			.join(', '),
+		notes: 'Fake AI backend: this is a placeholder prompt, not a real suggestion.'
+	};
+}
+
+/** Canned sample scenes, one for every kind. */
+function fakeScenesReply() {
+	return {
 		scenes: {
 			figure:
-				'Full-body view of a traveller in a long coat standing in a neutral pose, plain white background.',
-			exterior: 'An empty mountain village street at dawn, wooden houses and mist. No people.'
-		},
-		notes: 'Fake AI backend: this is a placeholder draft, not a real suggestion.'
+				'Full-body view of a traveler in a long coat standing in a neutral pose, plain white background.',
+			face: "Close-up of a traveler's face, eyes narrowed against the wind.",
+			interior: 'The empty interior of a wooden inn, lanterns and low tables.',
+			exterior: 'An empty mountain village street at dawn, wooden houses and mist.',
+			action: 'A traveler leaping across a stream, coat flying, speed lines.'
+		}
 	};
 }
 
@@ -34,14 +51,17 @@ function fakeCharacterReply() {
 		age: 'a young woman of about twenty',
 		appearance:
 			'slim and tall, sharp eyes, long black hair in a high ponytail, a small scar on her chin',
-		outfit: 'a dark travelling kimono, straw sandals and a wooden staff',
+		outfit: 'a dark traveling kimono, straw sandals and a wooden staff',
 		notes: 'Fake AI backend: this is a placeholder profile, not a real suggestion.'
 	};
 }
 
 /** Answers each kind of request the app makes with a canned reply. */
-function fakeReply(messages: ChatMessage[]) {
-	return messages[0]?.content.includes('story editor') ? fakeCharacterReply() : fakeStyleReply();
+export function fakeReply(messages: ChatMessage[]) {
+	const system = messages[0]?.content ?? '';
+	if (system.includes('story editor')) return fakeCharacterReply();
+	if (system.includes('sample scenes')) return fakeScenesReply();
+	return fakePromptReply(messages[1]?.content ?? '');
 }
 
 /** The local AI services, or fakes when AI_BACKEND=fake. */

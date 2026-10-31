@@ -12,13 +12,13 @@
 <svelte:head><title>Style · {data.manga.title} · Manga Maker</title></svelte:head>
 
 {#if data.editor}
-	<StyleEditor ed={data.editor} {form} />
+	<StyleEditor ed={data.editor} colorModes={data.colorModes} models={data.models} {form} />
 {:else}
 	<h1>Style</h1>
 	<p class="hint">
-		The style is how your manga is drawn: line work, shading, colour. Describe the look in your own
-		words—favourite manga, mood, how heavy the inking is, the setting and era. The AI turns it into
-		a style prompt and test scenes; you refine it by looking at sample pictures, then approve it.
+		The style is how your manga is drawn: line work, shading, color. Describe the look in your own
+		words—favorite manga, mood, how heavy the inking is, the setting and era. The AI turns it into a
+		style prompt and test scenes; you refine it by looking at sample pictures.
 	</p>
 
 	{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
@@ -35,7 +35,7 @@
 		</label>
 		<div class="row">
 			<label>
-				Colour
+				Color
 				<select name="colorMode">
 					{#each data.colorModes as mode (mode.value)}
 						<option value={mode.value} selected={mode.value === 'bw'}>{mode.label}</option>
@@ -62,7 +62,7 @@
 
 	{#if data.reusable.length}
 		<h2>Or reuse a style</h2>
-		<p class="hint">Start from a copy of the approved style of another of your manga.</p>
+		<p class="hint">Start from a copy of the style of another of your manga.</p>
 		<ul class="reuse">
 			{#each data.reusable as style (style.id)}
 				<li class="card wide">

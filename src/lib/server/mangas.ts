@@ -14,7 +14,8 @@ export function isReadingDirection(value: string): value is ReadingDirection {
 	return value in READING_DIRECTIONS;
 }
 
-export type StyleStatus = 'none' | 'draft' | 'approved';
+/** none: not started; started: no sample picture yet; ready: the rest can be drawn. */
+export type StyleStatus = 'none' | 'started' | 'ready';
 
 export function ownedManga(db: Db, ownerId: number, mangaId: number) {
 	const manga = db
@@ -43,7 +44,7 @@ export function listMangas(db: Db, ownerId: number) {
 			const style = manga.styleId ? styles.get(manga.styleId) : undefined;
 			return {
 				...manga,
-				styleStatus: (style?.active ? 'approved' : style ? 'draft' : 'none') as StyleStatus,
+				styleStatus: (style?.ready ? 'ready' : style ? 'started' : 'none') as StyleStatus,
 				// Until there is a cover, the style's figure sample stands in for one.
 				thumb: style?.thumbs[0] ?? null
 			};
@@ -97,7 +98,7 @@ function requireNoStyle(manga: { styleId: number | null }) {
 	if (manga.styleId) throw new MangaError('This manga already has a style.');
 }
 
-/** Start the manga's style from a description; the AI drafts its prompt. */
+/** Start the manga's style from a description; the AI writes its prompt and scenes. */
 export function startStyle(
 	db: Db,
 	ownerId: number,
@@ -111,7 +112,7 @@ export function startStyle(
 	return styleId;
 }
 
-/** Give the manga a copy of another manga's approved style. */
+/** Give the manga a copy of another manga's style. */
 export function reuseStyle(db: Db, ownerId: number, mangaId: number, fromStyleId: number): number {
 	const manga = ownedManga(db, ownerId, mangaId);
 	requireNoStyle(manga);
@@ -128,7 +129,7 @@ export function removeStyle(db: Db, ownerId: number, mangaId: number): void {
 	touch(db, mangaId);
 }
 
-/** Approved styles of the user's other manga, to start this one's from. */
+/** Ready styles of the user's other manga, to start this one's from. */
 export function reusableStyles(db: Db, ownerId: number, mangaId: number) {
 	const titles = new Map(
 		db
@@ -140,7 +141,7 @@ export function reusableStyles(db: Db, ownerId: number, mangaId: number) {
 			.map((m) => [m.styleId!, m.title])
 	);
 	return listStyles(db, ownerId)
-		.filter((s) => s.active && titles.has(s.id))
+		.filter((s) => s.ready && titles.has(s.id))
 		.map((s) => ({ id: s.id, title: titles.get(s.id)!, thumbs: s.thumbs }));
 }
 

@@ -2,7 +2,7 @@
 
 Can the local models design a cast and draw consistent reference pictures?
 Tested 2026-10-30 with the "Lantern Road" test manga (a mountain village in
-1780, greyscale ink-wash style) on Qwen 3.8 27B (text) and Qwen-Image 2512
+1780, grayscale ink-wash style) on Qwen 3.8 27B (text) and Qwen-Image 2512
 Lightning (images).
 
 ## Profiles
@@ -25,11 +25,11 @@ seeds, so the choice is mostly about pose and expression.
 
 ## Findings that shaped the code
 
-- **Hue words override the colour mode.** The first profiles said "indigo
-  kimono" and "brown leather apron", and a greyscale style came out in
-  colour. The AI is now told to describe tones, not hues, unless the manga is
-  in full colour, and character prompts end with a tone reminder ("Drawn
-  entirely in shades of grey.").
+- **Hue words override the color mode.** The first profiles said "indigo
+  kimono" and "brown leather apron", and a grayscale style came out in
+  color. The AI is now told to describe tones, not hues, unless the manga is
+  in full color, and character prompts end with a tone reminder ("Drawn
+  entirely in shades of gray.").
 - **A detailed face makes a medium shot.** Jubei's long face description
   cropped every option at the thighs, even at 3:4 and "head to feet". Calling
   it a "wide shot" with "empty space above the head and below the feet",

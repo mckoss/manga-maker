@@ -5,7 +5,7 @@ import type { ChatMessage, TextModel } from './text';
 
 /**
  * Stand-ins for tests, CI and machines without the AI services
- * (AI_BACKEND=fake). Images are flat colours derived from the seed.
+ * (AI_BACKEND=fake). Images are flat colors derived from the seed.
  */
 export class FakeImageModel implements ImageModel {
 	calls: ImageRequest[] = [];

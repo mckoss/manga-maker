@@ -9,7 +9,8 @@ import { FakeImageModel, FakeTextModel } from './ai/fake';
 import type { ChatMessage } from './ai/text';
 import { Worker } from './jobs';
 import { createUser } from './auth/users';
-import { approveDraft, getStyle, requestSamples, startRevision, styleJobHandlers } from './styles';
+import { fakeReply } from './ai';
+import { requestPictures, requestPrompt, styleJobHandlers } from './styles';
 import { createManga, deleteManga, startStyle } from './mangas';
 import {
 	CANDIDATE_COUNT,
@@ -40,6 +41,7 @@ let mangaId: number;
 let styleId: number;
 
 function reply(messages: ChatMessage[]) {
+	if (messages[0].content.includes('sample scenes')) return fakeReply(messages);
 	if (messages[0].content.includes('art director')) return { prompt: 'bold ink', notes: '' };
 	return {
 		name: 'Aiko',
@@ -75,11 +77,10 @@ beforeEach(async () => {
 	await worker.drain();
 });
 
-async function approveStyle() {
-	const draft = getStyle(db, owner, styleId).draft!;
-	requestSamples(db, owner, draft.id);
+/** Draw the style's sample pictures, which makes it ready to draw characters in. */
+async function readyStyle() {
+	requestPictures(db, owner, styleId, 'outdated');
 	await worker.drain();
-	approveDraft(db, owner, draft.id);
 }
 
 const brief = { name: '', role: 'protagonist' as const, brief: 'a runaway girl with a staff' };
@@ -132,12 +133,12 @@ describe('characters', () => {
 		expect(() => updateCharacter(db, owner, id, { ...c, name: '' })).toThrow(/name/);
 	});
 
-	it('draws candidates in the approved style, then keeps the chosen reference', async () => {
+	it('draws candidates in the style once it is ready, then keeps the chosen reference', async () => {
 		const id = createCharacter(db, owner, mangaId, brief);
 		await worker.drain();
-		expect(() => requestCandidates(db, owner, id)).toThrow(/Approve the manga/);
+		expect(() => requestCandidates(db, owner, id)).toThrow(/sample picture/);
 
-		await approveStyle();
+		await readyStyle();
 		requestCandidates(db, owner, id);
 		await worker.drain();
 		let detail = getCharacter(db, owner, id);
@@ -163,24 +164,22 @@ describe('characters', () => {
 	});
 
 	it('flags pictures drawn from an older description or style', async () => {
-		await approveStyle();
+		await readyStyle();
 		const id = createCharacter(db, owner, mangaId, brief);
 		await worker.drain();
 		requestCandidates(db, owner, id);
 		await worker.drain();
 		const c = getCharacter(db, owner, id).character;
-		updateCharacter(db, owner, id, { ...c, outfit: 'red armour' });
+		updateCharacter(db, owner, id, { ...c, outfit: 'red armor' });
 		expect(getCharacter(db, owner, id).candidates.every((i) => i.stale)).toBe(true);
 
-		const v2 = startRevision(db, owner, styleId);
-		requestSamples(db, owner, v2);
+		requestPrompt(db, owner, styleId, 'more contrast');
 		await worker.drain();
-		approveDraft(db, owner, v2);
 		expect(getCharacter(db, owner, id).candidates.every((i) => i.oldStyle)).toBe(true);
 	});
 
 	it('only accepts a finished picture of the same character as reference', async () => {
-		await approveStyle();
+		await readyStyle();
 		const a = createCharacter(db, owner, mangaId, brief);
 		const b = createCharacter(db, owner, mangaId, { ...brief, name: 'Goro' });
 		await worker.drain();
@@ -192,7 +191,7 @@ describe('characters', () => {
 	});
 
 	it('redraws a character sheet from the reference, view by view', async () => {
-		await approveStyle();
+		await readyStyle();
 		const id = createCharacter(db, owner, mangaId, brief);
 		await worker.drain();
 		expect(() => requestSheet(db, owner, id)).toThrow(/reference picture first/);
@@ -220,6 +219,16 @@ describe('characters', () => {
 		expect(newSide.seed).not.toBe(side.seed);
 		expect(image.edits).toHaveLength(SHEET_VIEWS.length + 1);
 
+		// A redraw can carry guidance for that one view.
+		requestSheet(db, owner, id, 'back', 'holding the staff over one shoulder');
+		await worker.drain();
+		expect(image.edits.at(-1)!.prompt).toBe(
+			sheetPrompt('bw', 'back', 'holding the staff over one shoulder')
+		);
+		expect(image.edits.at(-1)!.prompt).toMatch(
+			/^Show this character from behind\..* holding the staff over one shoulder\. Keep the same/
+		);
+
 		// A different reference makes the sheet outdated; sheet pictures can't be one.
 		chooseReference(db, owner, id, second.id);
 		expect(getCharacter(db, owner, id).sheet.every((s) => s.image?.outdated)).toBe(true);
@@ -235,12 +244,12 @@ describe('characters', () => {
 	});
 
 	it('deleting cancels pending work; deleting the manga removes its cast', async () => {
-		await approveStyle();
+		await readyStyle();
 		const id = createCharacter(db, owner, mangaId, brief);
 		await worker.drain();
 		requestCandidates(db, owner, id);
 		deleteCharacter(db, owner, id);
-		expect(db.select().from(jobs).where(eq(jobs.status, 'cancelled')).all()).toHaveLength(
+		expect(db.select().from(jobs).where(eq(jobs.status, 'canceled')).all()).toHaveLength(
 			CANDIDATE_COUNT
 		);
 		createCharacter(db, owner, mangaId, brief);
