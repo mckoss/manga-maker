@@ -14,7 +14,11 @@ function fakeStyleReply() {
 	return {
 		prompt:
 			'manga illustration, confident ink line art, screentone shading, clear silhouettes, expressive faces',
-		negativePrompt: 'photorealistic, 3d render, blurry, watermark',
+		scenes: {
+			figure:
+				'Full-body view of a traveller in a long coat standing in a neutral pose, plain white background.',
+			exterior: 'An empty mountain village street at dawn, wooden houses and mist. No people.'
+		},
 		notes: 'Fake AI backend: this is a placeholder draft, not a real suggestion.'
 	};
 }

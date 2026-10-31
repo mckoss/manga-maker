@@ -25,6 +25,9 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [x] Versioned styles: a revision replaces the active version only on approval
 - [x] Style evaluation notes: `docs/style-evaluation.md`
 - [x] End-to-end run with real Ollama and ComfyUI; UI checked in a browser
+- [x] Fix: sample scenes written by the AI to fit the style's era and setting;
+      negative prompts (ignored at CFG 1) replaced by a "keep out" list the AI
+      works into the prompt; negated clauses stripped from AI text
 
 ## Next
 

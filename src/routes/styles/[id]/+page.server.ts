@@ -4,7 +4,6 @@ import { IMAGE_MODELS } from '#lib/server/ai/image.js';
 import {
 	approveDraft,
 	COLOR_MODES,
-	compilePrompt,
 	deleteStyle,
 	discardDraft,
 	getStyle,
@@ -15,6 +14,8 @@ import {
 	requestRefine,
 	requestSamples,
 	SAMPLE_SUBJECTS,
+	samplePrompt,
+	sceneFor,
 	startRevision,
 	StyleError,
 	updateDraft
@@ -39,9 +40,7 @@ export const load: PageServerLoad = ({ params, locals }) => {
 				subject: subject.key,
 				label: subject.label,
 				sample: sample ?? null,
-				stale: Boolean(
-					sample && version && sample.prompt !== compilePrompt(version, subject.prompt)
-				)
+				stale: Boolean(sample && version && sample.prompt !== samplePrompt(version, subject.key))
 			};
 		});
 	return {
@@ -50,6 +49,9 @@ export const load: PageServerLoad = ({ params, locals }) => {
 		models: Object.entries(IMAGE_MODELS).map(([value, m]) => ({ value, label: m.label })),
 		activeSamples: sampleRow(detail.active?.id),
 		draftSamples: sampleRow(draft?.id),
+		draftScenes: draft
+			? SAMPLE_SUBJECTS.map((s) => ({ key: s.key, label: s.label, scene: sceneFor(draft, s.key) }))
+			: [],
 		historySamples: Object.fromEntries(detail.history.map((v) => [v.id, sampleRow(v.id)])),
 		canApprove: draft ? readyToApprove(draft, samples) : false,
 		colorLabels: Object.fromEntries(Object.entries(COLOR_MODES).map(([k, m]) => [k, m.label]))
@@ -83,7 +85,10 @@ export const actions: Actions = {
 				updateDraft(getDb(), locals.user!.id, num(form, 'versionId'), {
 					description: str(form, 'description'),
 					prompt: str(form, 'prompt'),
-					negativePrompt: str(form, 'negativePrompt'),
+					avoid: str(form, 'avoid'),
+					scenes: Object.fromEntries(
+						SAMPLE_SUBJECTS.map((s) => [s.key, str(form, `scene_${s.key}`)])
+					),
 					colorMode,
 					model
 				}),

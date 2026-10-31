@@ -25,17 +25,32 @@ painted greyscale. Bottom row, Z-Image Turbo with the black-and-white prompt.
   distinct. It is the default.
 - **Z-Image Turbo** (~7 s) gives a flatter, cleaner printed-page look, but
   ignored "No people" in the interior and drew pseudo-Japanese text on a sign.
-  Offered as an option per style. It is distilled, so it ignores negative
-  prompts.
+  Offered as an option per style.
+- **Neither model reads a negative prompt.** Both run few-step distilled
+  samplers at CFG 1, where the negative prompt is never evaluated. The app
+  sends none.
 
 ## Findings that shaped the code
 
 - **Genre words leak subjects.** A "detective seinen" style put a man in a
   trench coat into the empty-street sample even with "No people." in the
   prompt. Fixes: the style fragment now ends with a full stop so the subject
-  starts a new sentence, location subjects say "empty", and they add
-  `people, person, human figure` to the negative prompt. That held in 5 of 6
-  seeds tried; the remaining failure used a different wording that is not used.
+  starts a new sentence, and location scenes start with "empty" and end
+  "No people." (An early version also put `people` in the negative prompt,
+  which had no effect; see above.)
+- **Sample scenes must fit the style's world.** Fixed modern test scenes (a
+  school uniform, a street with power lines) fought a historical style. The AI
+  now writes the five scenes along with the style prompt, to match its era and
+  setting, and the user can edit them.
+- **Negation draws the thing negated.** Told to keep out power lines, the
+  local text model wrote "no power lines" into the scene, and Qwen-Image drew
+  them (top row below). The models write "no X" even when told not to, so the
+  app strips negated clauses from the AI's text, and the AI is asked to
+  describe what is there instead ("a dirt road under an open sky"). Bottom row:
+  the same Edo-period style after the fix.
+
+![Edo-period style before and after removing negation](images/style-period-scenes.jpg)
+
 - **Same seeds across versions** make revisions comparable: the draft's samples
   sit under the approved version's, and differences come from the prompt.
 
