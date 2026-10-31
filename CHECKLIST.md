@@ -79,4 +79,7 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
 - [ ] Characters on the versioned items layer (v0.10)
 
 - [ ] Locations (milestone 3)
+- [ ] Series: a new manga includes another manga's style, chosen characters
+      and chosen locations by explicit reference instead of a copy (see
+      PLAN.md, "Series")
 - [ ] AI critique of samples with a vision model (Gemma 4)
