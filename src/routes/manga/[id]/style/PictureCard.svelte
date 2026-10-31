@@ -45,7 +45,13 @@
 	{#if !item.locked}
 		<details class="redraw">
 			<summary>{current ? 'Redraw' : 'Draw'}…</summary>
-			<form method="POST" action="?/drawPictures" use:enhance>
+			<form
+				method="POST"
+				action="?/drawPictures"
+				use:enhance={() =>
+					({ update }) =>
+						update({ reset: false })}
+			>
 				<input type="hidden" name="which" value={subject} />
 				<label for="seed-{subject}">Seed</label>
 				<span class="seed">
@@ -87,6 +93,8 @@
 		display: grid;
 		gap: 0.3rem;
 		align-content: start;
+		/* Grid items default to their content's width; the redraw form must not widen the column. */
+		min-width: 0;
 	}
 	.caption {
 		display: flex;
@@ -121,9 +129,13 @@
 	}
 	.seed input {
 		min-width: 0;
+		width: 100%;
 		flex: 1;
 	}
 	textarea {
+		min-width: 0;
+		width: 100%;
+		box-sizing: border-box;
 		min-height: 2lh;
 	}
 </style>

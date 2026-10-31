@@ -22,6 +22,8 @@ import {
 	drawingStyle,
 	positiveOnly,
 	sentence,
+	TONE_REMINDER,
+	toneOnly,
 	type DrawingStyle
 } from './styles';
 
@@ -44,17 +46,6 @@ export function isRole(value: string): value is Role {
 export const CANDIDATE_COUNT = 4;
 /** Tall portrait (about 9:16, one megapixel): a full figure, hat to feet, fits. */
 export const CANDIDATE_SIZE = { width: 768, height: 1344 };
-
-/**
- * Restated at the end of character prompts: a long description pulls the
- * image toward color ("indigo kimono") unless the tones are repeated.
- */
-const TONE_REMINDER: Record<ColorMode, string> = {
-	bw: 'Drawn entirely in black ink on white paper.',
-	grayscale: 'Drawn entirely in shades of gray.',
-	limited: '',
-	color: ''
-};
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const uncapitalize = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
@@ -122,9 +113,10 @@ export function isSheetView(value: string): value is SheetView {
  */
 export function sheetPrompt(colorMode: ColorMode, view: SheetView, guidance = ''): string {
 	const { instruction } = SHEET_VIEWS.find((v) => v.key === view)!;
-	return [instruction, sentence(guidance), KEEP, TONE_REMINDER[colorMode]]
-		.filter(Boolean)
-		.join(' ');
+	return toneOnly(
+		colorMode,
+		[instruction, sentence(guidance), KEEP, TONE_REMINDER[colorMode]].filter(Boolean).join(' ')
+	);
 }
 
 // ---------------------------------------------------------------------------

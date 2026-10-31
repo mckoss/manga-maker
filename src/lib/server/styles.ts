@@ -34,11 +34,11 @@ export class StyleError extends Error {}
 export const COLOR_MODES: Record<ColorMode, { label: string; phrase: string }> = {
 	bw: {
 		label: 'Black and white with screentones',
-		phrase: 'Black and white manga art, black ink with screentone shading, no color.'
+		phrase: 'Black and white manga art, black ink with screentone shading.'
 	},
 	grayscale: {
 		label: 'Grayscale',
-		phrase: 'Grayscale manga art with ink outlines and soft gray shading, no color.'
+		phrase: 'Grayscale manga art with ink outlines and soft gray shading.'
 	},
 	limited: {
 		label: 'Limited palette',
@@ -46,6 +46,36 @@ export const COLOR_MODES: Record<ColorMode, { label: string; phrase: string }> =
 	},
 	color: { label: 'Full color', phrase: 'Full-color manga art.' }
 };
+
+/**
+ * Restated at the end of a picture prompt: the subject that comes last pulls
+ * the image toward color unless the tones are repeated after it. ("No color"
+ * would not do: the image model reads negation as a request.)
+ */
+export const TONE_REMINDER: Record<ColorMode, string> = {
+	bw: 'Drawn entirely in black ink on white paper.',
+	grayscale: 'Drawn entirely in shades of gray.',
+	limited: '',
+	color: ''
+};
+
+const HUES =
+	'red|reddish|orange|yellow|yellowish|green|greenish|blue|bluish|purple|violet|pink|indigo|crimson|scarlet|vermilion|azure|turquoise|teal|emerald|jade|magenta|cyan|golden|amber|ochre|navy|colorful|vibrant';
+const HUE_WORDS = new RegExp(`(?:-?\\b(?:${HUES})\\b-?)+\\s*`, 'gi');
+
+/**
+ * Take the hue words out of text drawn in black and white or grayscale: a
+ * single "green rice paddies" or "blue sky" makes the image model paint the
+ * whole picture in color.
+ */
+export function toneOnly(colorMode: ColorMode, text: string): string {
+	if (colorMode !== 'bw' && colorMode !== 'grayscale') return text;
+	return text
+		.replace(HUE_WORDS, '')
+		.replace(/\s+([,.;:!?])/g, '$1')
+		.replace(/\s{2,}/g, ' ')
+		.trim();
+}
 
 /**
  * The kinds of test picture every style is drawn with. Covering figures,
@@ -116,23 +146,37 @@ export function sentence(text: string): string {
 	return !t || /[.!?]$/.test(t) ? t : `${t}.`;
 }
 
-/** The full image prompt for one subject: color mode, then style, then subject. */
+/**
+ * The full image prompt for one subject: color mode, then style, then
+ * subject, without hue words when the style has no color.
+ */
 export function compilePrompt(
 	style: { colorMode: ColorMode; prompt: string },
 	subjectPrompt: string
 ): string {
-	return [COLOR_MODES[style.colorMode].phrase, sentence(style.prompt), subjectPrompt]
-		.filter(Boolean)
-		.join(' ');
+	return toneOnly(
+		style.colorMode,
+		[COLOR_MODES[style.colorMode].phrase, sentence(style.prompt), subjectPrompt]
+			.filter(Boolean)
+			.join(' ')
+	);
 }
 
-/** The full image prompt for a sample picture, with the user's guidance for that one round. */
+/**
+ * The full image prompt for a sample picture, with the user's guidance for
+ * that one round, ending with the tones to draw in.
+ */
 export function picturePrompt(
 	style: { colorMode: ColorMode; prompt: string },
 	scene: string,
 	guidance = ''
 ): string {
-	return [compilePrompt(style, sentence(scene)), sentence(guidance)].filter(Boolean).join(' ');
+	return compilePrompt(
+		style,
+		[sentence(scene), sentence(positiveOnly(guidance)), TONE_REMINDER[style.colorMode]]
+			.filter(Boolean)
+			.join(' ')
+	);
 }
 
 const NEGATION = /^(no|not|non|without|avoid|never|absence of|free of)\b/i;
@@ -703,6 +747,8 @@ Each scene is one sentence of 12 to 35 words describing what the picture shows, 
 ${SAMPLE_SUBJECTS.map((s) => `- "${s.key}": ${s.role}`).join('\n')}
 The "interior" and "exterior" scenes must start with "An empty" or "The empty"; "No people." is added to them automatically.
 
+Unless the color mode is full color, describe light, shadow and tones (dark, pale, misty, sunlit) and never hues: a single word like "green" or "blue" makes the image model paint the picture in color.
+
 ${NO_NEGATION}
 
 Reply with only a JSON object with the key "scenes": an object whose keys are the scenes asked for, each a scene sentence.`;
@@ -711,7 +757,10 @@ const scenesReply = z.object({ scenes: z.record(z.string(), z.string()) });
 
 export function sceneMessages(state: StyleState, requests: { key: string; guidance: string }[]) {
 	const asked = new Set(requests.map((r) => r.key));
-	const lines = [`Description of the look and setting the user wants: ${state.description}`];
+	const lines = [
+		`Description of the look and setting the user wants: ${state.description}`,
+		`Color mode: ${COLOR_MODES[state.style.colorMode].label}`
+	];
 	if (state.avoid) lines.push(`Keep out of every image: ${state.avoid}`);
 	const others = SAMPLE_SUBJECTS.filter((s) => !asked.has(s.key) && state.scenes[s.key]);
 	if (others.length) {
