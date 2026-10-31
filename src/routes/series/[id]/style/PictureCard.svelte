@@ -3,7 +3,7 @@
 	import { resolve } from '$app/paths';
 	import VersionNav from '#lib/components/VersionNav.svelte';
 	import type { ItemView } from '#lib/server/versions.js';
-	import { outOfDateText } from './labels.js';
+	import { outOfDateText } from '#lib/components/labels.js';
 
 	/** One sample picture: browse its versions, and redraw it with a seed and guidance. */
 	let { item, label, subject }: { item: ItemView; label: string; subject: string } = $props();

@@ -55,8 +55,8 @@
 
 {#if shown}
 	<div class="nav" role="group" aria-label="{label} versions">
-		{#if item.versions.length > 1}
-			<span class="pager">
+		<span class="pager">
+			{#if item.versions.length > 1}
 				<button
 					type="button"
 					class="secondary small"
@@ -64,7 +64,9 @@
 					onclick={() => step(-1)}
 					aria-label="Older version of {label}">‹</button
 				>
-				<span class="count">{index + 1} of {item.versions.length}</span>
+			{/if}
+			<span class="count">Version {index + 1} of {item.versions.length}</span>
+			{#if item.versions.length > 1}
 				<button
 					type="button"
 					class="secondary small"
@@ -72,8 +74,8 @@
 					onclick={() => step(1)}
 					aria-label="Newer version of {label}">›</button
 				>
-			</span>
-		{/if}
+			{/if}
+		</span>
 		<span class="meta">
 			{#if isCurrent}<strong>in use</strong>{:else}<em>not in use</em>{/if}
 			· {ORIGIN[shown.origin] ?? shown.origin}
@@ -81,11 +83,13 @@
 		{#if item.locked}<span class="badge lock">Kept</span>{/if}
 	</div>
 	<div class="actions">
-		{#if !isCurrent && !item.locked}
+		{#if !isCurrent}
 			<form method="POST" action="?/useVersion" use:enhance>
 				<input type="hidden" name="versionId" value={shown.id} />
 				<button type="submit" class="secondary small">Use this version</button>
-				<button type="submit" class="secondary small" name="lock" value="on">Use and keep</button>
+				{#if lockable && !item.locked}
+					<button type="submit" class="secondary small" name="lock" value="on">Use and keep</button>
+				{/if}
 			</form>
 		{/if}
 		{#if isCurrent && lockable}
@@ -135,7 +139,7 @@
 		gap: 0.3rem;
 	}
 	.count {
-		min-width: 3.5rem;
+		min-width: 6.5rem;
 		text-align: center;
 	}
 	.meta {

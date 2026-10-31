@@ -66,9 +66,10 @@ describe('versioned items', () => {
 		const item = ensureItem(db, owner, scope, 'prompt');
 		const only = addVersion(db, item, { origin: 'user', text: 'one' });
 		setLocked(db, access(), item.id, true);
-		expect(() =>
-			addVersion(db, ensureItem(db, owner, scope, 'prompt'), { origin: 'user' })
-		).toThrow(VersionError);
+		// Keeping stops the AI, not the user.
+		expect(() => addVersion(db, ensureItem(db, owner, scope, 'prompt'), { origin: 'ai' })).toThrow(
+			VersionError
+		);
 		const after = deleteVersion(db, access(), only.id);
 		expect(after).toMatchObject({ currentVersionId: null, locked: false });
 		expect(() => setLocked(db, access(), item.id, true)).toThrow(/nothing to keep/);

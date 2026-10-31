@@ -167,7 +167,12 @@ export const chapters = sqliteTable('chapters', {
 
 export type Chapter = typeof chapters.$inferSelect;
 
-/** A member of a series' cast. The look fields drive every picture of them. */
+/**
+ * A member of a series' cast. Everything about them (notes, profile,
+ * designs, pictures, the reference and the sheet) is a versioned item in the
+ * scope "character:<id>"; the name and role are copied here from their
+ * current versions for lists.
+ */
 export const characters = sqliteTable('characters', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	seriesId: integer('series_id')
@@ -176,25 +181,11 @@ export const characters = sqliteTable('characters', {
 	name: text('name').notNull().default(''),
 	/** protagonist | antagonist | supporting | minor */
 	role: text('role').notNull().default('supporting'),
-	/** The user's own words about the character, which the AI develops. */
-	brief: text('brief').notNull().default(''),
-	personality: text('personality').notNull().default(''),
-	motivation: text('motivation').notNull().default(''),
-	backstory: text('backstory').notNull().default(''),
-	speech: text('speech').notNull().default(''),
-	age: text('age').notNull().default(''),
-	/** Body, face and hair, as words an image model can draw. */
-	appearance: text('appearance').notNull().default(''),
-	outfit: text('outfit').notNull().default(''),
-	/** The AI's explanation of its latest draft. */
-	notes: text('notes').notNull().default(''),
-	/** Candidate seeds derive from this, so redraws after edits compare like for like. */
+	/** Design picture seeds derive from this, so redraws after edits compare like for like. */
 	seed: integer('seed').notNull(),
-	/** The chosen picture every later image of this character is drawn from. */
-	referenceImageId: integer('reference_image_id'),
 	/**
 	 * What the AI found the latest designs could vary (free) and what the notes,
-	 * age and setting decide (fixed), shown beside the design options.
+	 * age and setting decide (fixed), shown beside the designs.
 	 */
 	designTraits: text('design_traits', { mode: 'json' }).$type<{
 		fixed: string[];
@@ -205,43 +196,6 @@ export const characters = sqliteTable('characters', {
 });
 
 export type Character = typeof characters.$inferSelect;
-
-/** A generated picture of a character. */
-export const characterImages = sqliteTable('character_images', {
-	id: integer('id').primaryKey({ autoIncrement: true }),
-	characterId: integer('character_id')
-		.notNull()
-		.references(() => characters.id, { onDelete: 'cascade' }),
-	/**
-	 * candidate: a full-body design option to choose the reference from.
-	 * sheet: a view or expression redrawn from the reference (see `view`).
-	 */
-	kind: text('kind').notNull(),
-	/** For sheet pictures, which view or expression (see SHEET_VIEWS). */
-	view: text('view'),
-	/** For sheet pictures, the reference picture they were redrawn from. */
-	sourceImageId: integer('source_image_id'),
-	prompt: text('prompt').notNull(),
-	/**
-	 * For candidates, the design it was drawn from: a short label, and the
-	 * appearance and outfit that become the character's when it is chosen.
-	 * Null for sheet pictures and for candidates from before designs.
-	 */
-	variant: text('variant'),
-	appearance: text('appearance'),
-	outfit: text('outfit'),
-	seed: integer('seed').notNull(),
-	/** The style prompt version it was drawn in, to flag pictures from an older style. */
-	stylePromptVersionId: integer('style_prompt_version_id').references(() => versions.id, {
-		onDelete: 'set null'
-	}),
-	jobId: integer('job_id').references(() => jobs.id, { onDelete: 'set null' }),
-	assetHash: text('asset_hash').references(() => assets.hash),
-	thumbHash: text('thumb_hash').references(() => assets.hash),
-	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
-});
-
-export type CharacterImage = typeof characterImages.$inferSelect;
 
 /**
  * A character appearing in a chapter, drawn from the design (reference
@@ -257,8 +211,8 @@ export const chapterCast = sqliteTable(
 		characterId: integer('character_id')
 			.notNull()
 			.references(() => characters.id, { onDelete: 'cascade' }),
-		/** Null until the character has a reference picture. */
-		pinnedImageId: integer('pinned_image_id').references(() => characterImages.id, {
+		/** A version of the character's reference; null until it has one. */
+		pinnedVersionId: integer('pinned_version_id').references(() => versions.id, {
 			onDelete: 'set null'
 		}),
 		createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()

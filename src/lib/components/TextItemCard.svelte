@@ -16,7 +16,10 @@
 		lines = 2,
 		placeholder = '',
 		notesBy = '',
-		regenerate
+		regenerate,
+		lockable = regenerate !== undefined,
+		action = 'saveText',
+		status
 	}: {
 		item: ItemView;
 		label: string;
@@ -28,12 +31,18 @@
 		notesBy?: string;
 		/** Ask the AI for a new version: the form action and the button wording. */
 		regenerate?: { action: string; which?: string; label: string; placeholder: string };
+		/** False for the user's own inputs, which the AI never rewrites. */
+		lockable?: boolean;
+		/** The form action that saves the user's wording. */
+		action?: string;
+		/** Waiting on an earlier step that is out of date. */
+		status?: string;
 	} = $props();
 
 	let viewId = $state<number | null>(null);
 	let current = $derived(item.versions.find((v) => v.id === item.currentId));
 	let shown = $derived(item.versions.find((v) => v.id === viewId) ?? current);
-	let editable = $derived(!item.locked && shown?.id === current?.id);
+	let editable = $derived(shown?.id === current?.id);
 	let id = $derived(`${kind}-${key || 'main'}`);
 
 	/** Submit without clearing what the user typed. */
@@ -51,7 +60,10 @@
 		{:else if !current}
 			<span class="badge muted">Not written yet</span>
 		{/if}
-		{#if shown?.outOfDate.length}<span class="badge warn">Out of date</span>{/if}
+		{#if shown?.outOfDate.length}<span class="badge warn">Out of date</span>
+		{:else if status === 'upstream' && !item.locked}<span class="badge muted"
+				>Earlier step changed</span
+			>{/if}
 	</div>
 	{#if shown?.outOfDate.length}
 		<p class="why">{outOfDateText(shown.outOfDate)}</p>
@@ -62,7 +74,7 @@
 	{#if notesBy && shown?.notes}
 		<p class="mentor"><strong>{notesBy}:</strong> {shown.notes}</p>
 	{/if}
-	<form method="POST" action="?/saveText" use:enhance={keep}>
+	<form method="POST" action="?/{action}" use:enhance={keep}>
 		<input type="hidden" name="kind" value={kind} />
 		<input type="hidden" name="key" value={key} />
 		<textarea
@@ -73,12 +85,17 @@
 			{placeholder}
 			value={shown?.text ?? ''}></textarea>
 		{#if editable}
-			<button type="submit" class="secondary small">Save {label.toLowerCase()}</button>
-		{:else if item.locked}
-			<span class="hint">Kept. Stop keeping it to change it.</span>
+			<span class="save">
+				<button type="submit" class="secondary small">Save {label.toLowerCase()}</button>
+				{#if lockable}
+					<label class="check"
+						><input type="checkbox" name="keep" checked /> and keep it (the AI won't rewrite it)</label
+					>
+				{/if}
+			</span>
 		{/if}
 	</form>
-	<VersionNav {item} {shown} {label} lockable={!!regenerate} onview={(v) => (viewId = v)} />
+	<VersionNav {item} {shown} {label} {lockable} onview={(v) => (viewId = v)} />
 	{#if regenerate && !item.locked}
 		<details class="regen">
 			<summary>{regenerate.label}…</summary>
@@ -126,6 +143,16 @@
 		width: 100%;
 	}
 	textarea[readonly] {
+		color: var(--muted);
+	}
+	.save {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+	}
+	.save .check {
+		font-size: 0.85rem;
 		color: var(--muted);
 	}
 	.regen form {

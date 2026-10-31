@@ -192,7 +192,12 @@ describe('style pipeline', () => {
 		expect(figure.currentId).toBe(first.id);
 		expect(figure.locked).toBe(true);
 		expect(requestPictures(db, owner, id, 'all')).toBe(SAMPLE_SUBJECTS.length - 1);
-		expect(() => useVersion(db, access, second.id)).toThrow(/is kept/);
+		// The user may still switch versions of a kept item; it stays kept.
+		expect(useVersion(db, access, second.id)).toMatchObject({
+			currentVersionId: second.id,
+			locked: true
+		});
+		useVersion(db, access, first.id);
 		await worker.drain();
 
 		// Deleting the current version falls back to the newest remaining one.

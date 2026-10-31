@@ -6,7 +6,7 @@
 	import type { PageData } from './$types';
 	import PictureCard from './PictureCard.svelte';
 	import QuestionsCard from './QuestionsCard.svelte';
-	import TextItemCard from './TextItemCard.svelte';
+	import TextItemCard from '#lib/components/TextItemCard.svelte';
 
 	type Editor = NonNullable<PageData['editor']>;
 	let {

@@ -53,7 +53,7 @@ and locations move up to a **series**, and each story is a **chapter** of it:
 - Existing manga become a series of the same name with one chapter.
 
 As built: the pinned version is the character's design (its reference
-picture) until characters move onto versioned items (v0.13). A character
+picture), a version of the character's reference item (v0.13). A character
 added before it has a design takes the first one chosen. Chapters are
 numbered in order; deleting one renumbers the rest. The chapter's
 Locations picker waits for locations.
@@ -62,8 +62,8 @@ Locations picker waits for locations.
 
 Every AI generation, text or image, is a version of a versioned item (see
 "Versioned items" below), so nothing the AI wrote or drew is lost and any of
-it can be recovered. The style works this way; character profiles move onto
-it in v0.13, and plot, script and the later steps are built on it.
+it can be recovered. The style and the characters (since v0.13) work this way,
+and plot, script and the later steps are built on it.
 
 Each manga starts with a style, then moves through the creative phases. Each phase produces structured data
 (not just prose), and later phases build on it. Every phase has a **mentor**:

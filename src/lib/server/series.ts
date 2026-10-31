@@ -1,6 +1,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import type { Db } from './db';
-import { chapters, series, type ReadingDirection } from './db/schema';
+import { chapters, characters, series, type ReadingDirection } from './db/schema';
+import { deleteScope } from './versions';
 import { copyStyle, createStyle, deleteStyle, listStyles, type StyleInput } from './styles';
 
 export class SeriesError extends Error {}
@@ -107,6 +108,14 @@ export function deleteSeries(db: Db, ownerId: number, seriesId: number): void {
 	const row = ownedSeries(db, ownerId, seriesId);
 	db.transaction(() => {
 		if (row.styleId) deleteStyle(db, ownerId, row.styleId);
+		// The characters' rows go with the series; their items are kept by scope.
+		for (const { id } of db
+			.select({ id: characters.id })
+			.from(characters)
+			.where(eq(characters.seriesId, seriesId))
+			.all()) {
+			deleteScope(db, `character:${id}`);
+		}
 		db.delete(series).where(eq(series.id, seriesId)).run();
 	});
 }
