@@ -12,7 +12,14 @@
 <svelte:head><title>Style · {data.series.title} · Manga Maker</title></svelte:head>
 
 {#if data.editor}
-	<StyleEditor ed={data.editor} colorModes={data.colorModes} models={data.models} {form} />
+	<StyleEditor
+		ed={data.editor}
+		logo={data.logo}
+		logline={data.series.logline}
+		colorModes={data.colorModes}
+		models={data.models}
+		{form}
+	/>
 {:else}
 	<h1>Style</h1>
 	<p class="hint">

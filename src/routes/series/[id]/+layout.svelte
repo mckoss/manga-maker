@@ -23,9 +23,12 @@
 			class="title"
 			href={resolve('/series/[id]', { id })}
 			aria-current={current === '' ? 'page' : undefined}
-			><span class="seal" aria-hidden="true">{data.series.title.slice(0, 1)}</span><span
-				>{data.series.title}</span
-			></a
+			>{#if data.series.logo}<img
+					class="seal logo"
+					src={resolve('/assets/[hash]', { hash: data.series.logo })}
+					alt=""
+				/>{:else}<span class="seal" aria-hidden="true">{data.series.title.slice(0, 1)}</span
+				>{/if}<span>{data.series.title}</span></a
 		>
 		<p class="group">For the whole series</p>
 		<ol class="steps">
@@ -116,6 +119,14 @@
 	.title[aria-current='page'] {
 		background: var(--ink);
 		color: var(--paper);
+	}
+	.seal.logo {
+		width: 44px;
+		height: 44px;
+		object-fit: cover;
+		background: var(--paper);
+		border: 2px solid var(--ink);
+		box-sizing: border-box;
 	}
 	.seal {
 		flex: none;

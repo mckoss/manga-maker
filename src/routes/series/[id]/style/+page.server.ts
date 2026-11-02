@@ -2,6 +2,8 @@ import { fail } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.js';
 import { IMAGE_MODELS } from '#lib/server/ai/image.js';
 import {
+	ownedSeries,
+	seriesScope,
 	seriesStyleId,
 	SeriesError,
 	removeStyle,
@@ -35,6 +37,7 @@ import {
 	useVersion,
 	VersionError
 } from '#lib/server/versions.js';
+import { getLogo, LogoError, requestLogo, stopLogo } from '#lib/server/logos.js';
 import type { Actions, PageServerLoad } from './$types';
 
 const colorModes = Object.entries(COLOR_MODES).map(([value, m]) => ({ value, label: m.label }));
@@ -46,6 +49,7 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 	const ownerId = locals.user!.id;
 	return {
 		editor: series.styleId ? getStyle(db, ownerId, series.styleId) : null,
+		logo: series.styleId ? getLogo(db, ownerId, series.id) : null,
 		colorModes,
 		models,
 		reusable: series.styleId ? [] : reusableStyles(db, ownerId, Number(params.id))
@@ -59,7 +63,12 @@ async function run(fn: () => unknown, message?: string | ((result: unknown) => s
 		const text = typeof message === 'function' ? message(result) : message;
 		return text ? { message: text } : undefined;
 	} catch (e) {
-		if (e instanceof StyleError || e instanceof SeriesError || e instanceof VersionError) {
+		if (
+			e instanceof StyleError ||
+			e instanceof SeriesError ||
+			e instanceof VersionError ||
+			e instanceof LogoError
+		) {
 			return fail(400, { error: e.message });
 		}
 		throw e;
@@ -75,11 +84,20 @@ function which(form: FormData): Which {
 	throw new StyleError('Choose what to regenerate.');
 }
 
-/** The style of the series in the URL, and access to its items. */
-function access(locals: App.Locals, params: { id: string }) {
+/**
+ * The style of the series in the URL, and access to its items: the style's,
+ * or with `scope=series` in the form, the series' own (its logo).
+ */
+function access(locals: App.Locals, params: { id: string }, form?: FormData) {
 	const db = getDb();
-	const styleId = seriesStyleId(db, locals.user!.id, Number(params.id));
-	return { db, styleId, access: styleAccess(db, locals.user!.id, styleId) };
+	const ownerId = locals.user!.id;
+	const seriesId = Number(params.id);
+	const styleId = seriesStyleId(db, ownerId, seriesId);
+	if (form?.get('scope') === 'series') {
+		ownedSeries(db, ownerId, seriesId);
+		return { db, styleId, access: { ownerId, scope: seriesScope(seriesId) } };
+	}
+	return { db, styleId, access: styleAccess(db, ownerId, styleId) };
 }
 
 const count = (n: unknown, what: string) =>
@@ -198,7 +216,7 @@ export const actions: Actions = {
 		const lock = form.get('lock') === 'on';
 		return run(
 			() => {
-				const { db, access: a } = access(locals, params);
+				const { db, access: a } = access(locals, params, form);
 				useVersion(db, a, num(form, 'versionId'), { lock });
 			},
 			lock ? 'Using that version, and keeping it.' : 'Using that version.'
@@ -208,14 +226,14 @@ export const actions: Actions = {
 		const form = await request.formData();
 		const locked = form.get('locked') === 'on';
 		return run(() => {
-			const { db, access: a } = access(locals, params);
+			const { db, access: a } = access(locals, params, form);
 			setLocked(db, a, num(form, 'itemId'), locked);
 		});
 	},
 	deleteVersion: async ({ request, locals, params }) => {
 		const form = await request.formData();
 		return run(() => {
-			const { db, access: a } = access(locals, params);
+			const { db, access: a } = access(locals, params, form);
 			deleteVersion(db, a, num(form, 'versionId'));
 		}, 'Version deleted.');
 	},
@@ -223,12 +241,28 @@ export const actions: Actions = {
 		const form = await request.formData();
 		return run(
 			() => {
-				const { db, access: a } = access(locals, params);
+				const { db, access: a } = access(locals, params, form);
 				return deleteOtherVersions(db, a, num(form, 'itemId'));
 			},
 			(n) => `Deleted ${n} older version${n === 1 ? '' : 's'}.`
 		);
 	},
+	drawLogo: async ({ request, locals, params }) => {
+		const form = await request.formData();
+		const raw = str(form, 'seed').trim();
+		const seed = raw ? Number(raw) : null;
+		return run(() => {
+			if (seed !== null && !Number.isSafeInteger(seed)) {
+				throw new LogoError('The seed must be a whole number.');
+			}
+			requestLogo(getDb(), locals.user!.id, Number(params.id), {
+				guidance: str(form, 'guidance'),
+				seed
+			});
+		}, 'Drawing the logo.');
+	},
+	stopLogo: async ({ locals, params }) =>
+		run(() => stopLogo(getDb(), locals.user!.id, Number(params.id)), 'Stopped drawing the logo.'),
 	startOver: async ({ locals, params }) =>
 		run(() => removeStyle(getDb(), locals.user!.id, Number(params.id)), 'Style removed.')
 };

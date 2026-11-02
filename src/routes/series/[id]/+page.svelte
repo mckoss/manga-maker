@@ -10,8 +10,19 @@
 	let styleDone = $derived(data.series.styleStatus === 'ready');
 </script>
 
-<h1>{data.series.title}</h1>
-{#if data.series.logline}<p class="logline">{data.series.logline}</p>{/if}
+<div class="masthead">
+	{#if data.series.logo}
+		<img
+			class="logo"
+			src={resolve('/assets/[hash]', { hash: data.series.logo })}
+			alt="{data.series.title} logo"
+		/>
+	{/if}
+	<div>
+		<h1>{data.series.title}</h1>
+		{#if data.series.logline}<p class="logline">{data.series.logline}</p>{/if}
+	</div>
+</div>
 
 <section>
 	<h2>Steps</h2>
@@ -135,6 +146,22 @@
 </section>
 
 <style>
+	.masthead {
+		display: flex;
+		align-items: center;
+		gap: var(--space-5);
+	}
+	.masthead h1 {
+		margin: 0;
+	}
+	.logo {
+		flex: none;
+		width: 7rem;
+		height: 7rem;
+		object-fit: cover;
+		border: var(--border-panel);
+		box-shadow: var(--shadow-ink);
+	}
 	.logline {
 		font: 400 18px/1.5 var(--font-body);
 		color: var(--tone-60);

@@ -111,3 +111,33 @@ test('deletes a character', async ({ signedIn: page }) => {
 	await expect(page.getByRole('heading', { name: 'Characters', level: 1 })).toBeVisible();
 	await expect(page.getByRole('link', { name: /Temp/ })).toHaveCount(0);
 });
+
+test('draws a series logo from the protagonist, used across the series', async ({
+	signedIn: page
+}) => {
+	await newSeries(page, 'Logo Test');
+	await readyStyle(page);
+	const logo = page.locator('section').filter({ hasText: '4. Series logo' });
+	await expect(logo.getByText('None with a reference picture yet')).toBeVisible();
+	await expect(logo.getByRole('button', { name: 'Draw the logo' })).toHaveCount(0);
+
+	await steps(page).getByRole('link', { name: 'Characters' }).click();
+	await page.getByLabel('Describe them').fill('a runaway girl with a staff');
+	await page.getByRole('button', { name: 'Add character' }).click();
+	await expect(page.getByRole('heading', { name: 'Aiko', level: 1 })).toBeVisible();
+	await page.getByRole('button', { name: 'Update everything not kept' }).click();
+	const options = page.getByRole('button', { name: /^Use design \d as reference$/ });
+	await expect(options).toHaveCount(4);
+	await options.first().click();
+	await expect(page.getByText('Reference picture chosen.')).toBeVisible();
+
+	await steps(page).getByRole('link', { name: 'Style' }).click();
+	await expect(logo.getByRole('link', { name: 'Aiko' })).toBeVisible();
+	await logo.getByRole('button', { name: 'Draw the logo' }).click();
+	await expect(logo.getByRole('img', { name: 'Series logo' })).toBeVisible();
+	await expect(logo.getByText('Version 1 of 1')).toBeVisible();
+	// The logo stands for the series in the sidebar and on the overview.
+	await expect(steps(page).locator('img.logo')).toBeVisible();
+	await steps(page).getByRole('link', { name: 'Logo Test' }).click();
+	await expect(page.getByRole('img', { name: 'Logo Test logo' })).toBeVisible();
+});
