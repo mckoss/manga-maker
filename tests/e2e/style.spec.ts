@@ -45,10 +45,9 @@ test('keeps versions of a picture, goes back to one and keeps it', async ({ sign
 
 test('marks later steps out of date and regenerates only those', async ({ signedIn: page }) => {
 	await newStyle(page, 'Out of date');
-	await page
-		.getByRole('textbox', { name: 'Description', exact: true })
-		.fill('Edo-period ink, fishing villages, winter');
-	await page.getByRole('button', { name: 'Save description' }).click();
+	const description = page.getByRole('textbox', { name: 'Description', exact: true });
+	await description.fill('Edo-period ink, fishing villages, winter');
+	await description.blur();
 	await expect(page.getByText('Made before the description changed.').first()).toBeVisible();
 
 	const prompt = page

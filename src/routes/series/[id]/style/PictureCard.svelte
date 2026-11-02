@@ -35,7 +35,10 @@
 		<strong>{label}</strong>
 		{#if shown?.outOfDate.length}<span class="badge warn">Out of date</span>{/if}
 	</div>
-	{#if shown?.outOfDate.length}<p class="why">{outOfDateText(shown.outOfDate)}</p>{/if}
+	{#if shown?.outOfDate.length}<p class="why">
+			{outOfDateText(shown.outOfDate)}{#if !item.locked && !item.pending}{' '}Redraw it to bring it
+				up to date.{/if}
+		</p>{/if}
 	{#if shown}
 		<p class="meta">
 			Seed {shown.seed ?? 'not recorded'}{#if shown.guidance}<br />Guidance: {shown.guidance}{/if}

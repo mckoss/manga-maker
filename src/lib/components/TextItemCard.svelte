@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { enhance, type SubmitFunction } from '$app/forms';
+	import { enhance } from '$app/forms';
+	import { AutoSave } from '#lib/autosave.svelte.js';
 	import VersionNav from '#lib/components/VersionNav.svelte';
 	import type { ItemView } from '#lib/server/versions.js';
 	import { outOfDateText } from './labels.js';
@@ -45,16 +46,26 @@
 	let editable = $derived(shown?.id === current?.id);
 	let id = $derived(`${kind}-${key || 'main'}`);
 
-	/** Submit without clearing what the user typed. */
-	const keep: SubmitFunction =
-		() =>
-		async ({ update }) =>
-			update({ reset: false });
+	/** What is typed in the box, once the user starts typing. */
+	let draft = $state<string | null>(null);
+	let dirty = $derived(editable && draft !== null && draft !== (shown?.text ?? ''));
+	/** The user's wording is saved when they leave the box, as a new version. */
+	const save = new AutoSave();
+	// A new version (saved, or written by the AI) starts a fresh draft.
+	$effect(() => {
+		void shown?.id;
+		draft = null;
+	});
 </script>
 
 <div class="card wide item" class:stale={shown && shown.outOfDate.length}>
 	<div class="head">
 		<label for={id}>{label}</label>
+		{#if dirty && save.state !== 'saving'}
+			<span class="hint saving">Saves when you click away</span>
+		{:else if save.status}
+			<span class="hint saving" class:error={save.state === 'failed'}>{save.status}</span>
+		{/if}
 		{#if item.pending}
 			<span class="hint"><span class="spinner"></span> The AI is writing…</span>
 		{:else if !current}
@@ -74,7 +85,7 @@
 	{#if notesBy && shown?.notes}
 		<p class="mentor"><strong>{notesBy}:</strong> {shown.notes}</p>
 	{/if}
-	<form method="POST" action="?/{action}" use:enhance={keep}>
+	<form method="POST" action="?/{action}" use:enhance={save.enhance} {@attach save.attach}>
 		<input type="hidden" name="kind" value={kind} />
 		<input type="hidden" name="key" value={key} />
 		<textarea
@@ -83,13 +94,9 @@
 			rows={lines}
 			readonly={!editable}
 			{placeholder}
-			value={shown?.text ?? ''}></textarea>
-		{#if editable}
-			<span class="save">
-				<button type="submit" class="secondary small">Save {label.toLowerCase()}</button>
-				{#if lockable}<input type="hidden" name="keep" value="on" />{/if}
-			</span>
-		{/if}
+			value={shown?.text ?? ''}
+			oninput={(e) => (draft = e.currentTarget.value)}></textarea>
+		{#if editable && lockable}<input type="hidden" name="keep" value="on" />{/if}
 	</form>
 	<VersionNav {item} {shown} {label} {lockable} onview={(v) => (viewId = v)} />
 	{#if regenerate && !item.locked}
@@ -122,6 +129,9 @@
 		font: 700 13px/1.2 var(--font-body);
 		margin: 0;
 	}
+	.saving {
+		font-size: 12px;
+	}
 	.why {
 		margin: 0;
 		font-size: 12px;
@@ -140,12 +150,6 @@
 	}
 	.item.stale textarea {
 		border: var(--border-stale);
-	}
-	.save {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0.5rem;
 	}
 	.regen form {
 		margin-top: 0.4rem;

@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { enhance, type SubmitFunction } from '$app/forms';
+	import { enhance } from '$app/forms';
+	import { AutoSave } from '#lib/autosave.svelte.js';
 	import { resolve } from '$app/paths';
 	import VersionNav from '#lib/components/VersionNav.svelte';
 	import { outOfDateText } from '#lib/components/labels.js';
@@ -53,10 +54,8 @@
 	}
 
 	const asset = (hash: string) => resolve('/assets/[hash]', { hash });
-	const keep: SubmitFunction =
-		() =>
-		async ({ update }) =>
-			update({ reset: false });
+	/** The design's words are saved when the user leaves a changed field. */
+	const save = new AutoSave();
 </script>
 
 <article class="design" class:stale={shownPicture?.outOfDate.length}>
@@ -74,7 +73,7 @@
 		{/if}
 		{#if design.error && !design.pending}<p class="error">Failed: {design.error}</p>{/if}
 		{#if words || editable}
-			<form method="POST" action="?/saveDesign" use:enhance={keep}>
+			<form method="POST" action="?/saveDesign" use:enhance={save.enhance} {@attach save.attach}>
 				<input type="hidden" name="key" value={slot} />
 				<label>
 					Label
@@ -91,10 +90,10 @@
 					<textarea name="outfit" rows="3" readonly={!editable}>{words?.outfit ?? ''}</textarea>
 				</label>
 				{#if editable}
-					<span class="save">
-						<button type="submit" class="secondary small" aria-label="Save {name}">Save</button>
-						<input type="hidden" name="keep" value="on" />
-					</span>
+					<input type="hidden" name="keep" value="on" />
+					{#if save.status}<span class="hint" class:error={save.state === 'failed'}
+							>{save.status}</span
+						>{/if}
 				{/if}
 			</form>
 		{/if}
@@ -149,7 +148,10 @@
 			{/if}
 		</div>
 		{#if shownPicture?.outOfDate.length}
-			<p class="why">{outOfDateText(shownPicture.outOfDate)}</p>
+			<p class="why">
+				{outOfDateText(shownPicture.outOfDate)}{#if !picture.locked && !picture.pending}{' '}Redraw
+					it to bring it up to date.{/if}
+			</p>
 		{/if}
 
 		<div class="row actions">
@@ -287,12 +289,6 @@
 	textarea[readonly],
 	input[readonly] {
 		color: var(--muted);
-	}
-	.save {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		align-items: center;
 	}
 	.regen {
 		margin-top: 0.35rem;
