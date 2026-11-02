@@ -97,7 +97,7 @@ export function addVersion(
 	opts: { keep?: boolean } = {}
 ): Version {
 	if (item.locked && content.origin !== 'user') {
-		throw new VersionError('It is kept. Stop keeping it to change it.');
+		throw new VersionError('It is locked. Unlock it to change it.');
 	}
 	if (opts.keep) dropPending(db, [item.id]);
 	return db.transaction((tx) => {
@@ -126,7 +126,7 @@ export function startVersion(
 	item: Item,
 	opts: { seed?: number | null; guidance?: string } = {}
 ): Version {
-	if (item.locked) throw new VersionError('It is kept. Stop keeping it to regenerate it.');
+	if (item.locked) throw new VersionError('It is locked. Unlock it to regenerate it.');
 	dropPending(db, [item.id]);
 	return db
 		.insert(versions)
@@ -259,7 +259,7 @@ export function useVersion(
 export function setLocked(db: Db, access: Access, itemId: number, locked: boolean): Item {
 	const item = accessItem(db, access, itemId);
 	if (locked && item.currentVersionId === null) {
-		throw new VersionError('There is nothing to keep yet.');
+		throw new VersionError('There is nothing to lock yet.');
 	}
 	if (locked) dropPending(db, [item.id]);
 	return db.update(items).set({ locked }).where(eq(items.id, itemId)).returning().get();

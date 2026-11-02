@@ -59,17 +59,17 @@
 					<small>{step.made}</small>
 					<span class="state">
 						{#if st}{st.text}{:else}✓ up to date{/if}
-						{#if s.kept}· {s.kept} kept{/if}
+						{#if s.kept}· {s.kept} locked{/if}
 					</span>
 				</a>
 			</li>
 		{/each}
 	</ol>
 	<form method="POST" action="?/update" use:enhance>
-		<button type="submit" disabled={due === 0}>Update everything not kept</button>
+		<button type="submit" disabled={due === 0}>Regenerate everything out of date</button>
 		<span class="hint">
-			Regenerates what is out of date, step by step, down to the sheet. A new reference is always
-			your choice.
+			Generates what is missing and regenerates what is out of date and unlocked, step by step, down
+			to the sheet. A new reference is always your choice.
 		</span>
 	</form>
 </nav>

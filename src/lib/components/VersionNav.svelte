@@ -31,9 +31,9 @@
 	let isCurrent = $derived(shown !== undefined && shown.id === item.currentId);
 
 	const ORIGIN: Record<string, string> = {
-		ai: 'by the AI',
+		ai: 'generated',
 		user: 'edited by you',
-		import: 'from before versions were kept'
+		import: 'from before versions were saved'
 	};
 
 	const step = (delta: number) => {
@@ -42,7 +42,7 @@
 	};
 
 	const confirmLocked = (e: SubmitEvent) => {
-		if (item.locked && !confirm(`${label} is kept. Delete this version anyway?`)) {
+		if (item.locked && !confirm(`${label} is locked. Delete this version anyway?`)) {
 			e.preventDefault();
 		}
 	};
@@ -67,22 +67,22 @@
 				<button
 					type="submit"
 					class:locked={item.locked}
-					aria-label={item.locked ? `Stop keeping ${label}` : `Keep ${label}`}
+					aria-label={item.locked ? `Unlock ${label}` : `Lock ${label}`}
 					aria-pressed={item.locked}
 					title={item.locked
-						? 'Kept: the AI won’t replace this. Click to unlock.'
-						: 'Not kept: the AI may replace this. Click to lock it.'}
+						? 'Locked: it won’t be regenerated. Click to unlock.'
+						: 'Unlocked: it can be regenerated. Click to lock it.'}
 				>
 					<Icon
 						name={item.locked ? 'lock' : 'lock-open'}
 						size={15}
 						stroke={item.locked ? 2.25 : 2}
 					/>
-					{#if item.locked}<span>Kept</span>{/if}
+					{#if item.locked}<span>Locked</span>{/if}
 				</button>
 			</form>
 		{:else if item.locked}
-			<span class="badge lock">Kept</span>
+			<span class="badge lock">Locked</span>
 		{/if}
 		<span class="pager">
 			{#if item.versions.length > 1}
@@ -106,8 +106,9 @@
 			{/if}
 		</span>
 		<span class="meta">
-			{#if isCurrent}<strong>in use</strong>{:else}<em>not in use</em>{/if}
+			{#if isCurrent}<strong>Selected</strong>{:else}<em>not selected</em>{/if}
 			· {ORIGIN[shown.origin] ?? shown.origin}
+			{#if shown.guidance}· <span class="amended">amended: {shown.guidance}</span>{/if}
 		</span>
 	</div>
 	<div class="actions">
@@ -115,9 +116,11 @@
 			<form method="POST" action="?/useVersion" use:enhance>
 				{#if scope}<input type="hidden" name="scope" value={scope} />{/if}
 				<input type="hidden" name="versionId" value={shown.id} />
-				<button type="submit" class="secondary small">Use this version</button>
+				<button type="submit" class="secondary small">Select this version</button>
 				{#if lockable && !item.locked}
-					<button type="submit" class="secondary small" name="lock" value="on">Use and keep</button>
+					<button type="submit" class="secondary small" name="lock" value="on"
+						>Select and lock</button
+					>
 				{/if}
 			</form>
 		{/if}
@@ -212,6 +215,9 @@
 	}
 	.meta {
 		color: var(--tone-60);
+	}
+	.amended {
+		font-style: italic;
 	}
 	.meta em {
 		font-style: normal;

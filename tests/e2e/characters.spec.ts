@@ -11,7 +11,7 @@ async function newSeries(page: Page, title: string) {
 async function readyStyle(page: Page) {
 	await page.getByLabel('Describe the look').fill('Edo-period ink');
 	await page.getByRole('button', { name: 'Start the style' }).click();
-	await page.getByRole('button', { name: /Draw missing and out-of-date pictures/ }).click();
+	await page.getByRole('button', { name: 'Generate 5 pictures' }).click();
 	await expect(page.getByRole('img', { name: 'Action sample' })).toBeVisible();
 }
 
@@ -35,7 +35,7 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	const profile = page.locator('#profile');
 	await expect(profile.getByLabel('Appearance', { exact: true })).toHaveValue(/long black hair/);
 	await expect(page.getByText('AI story editor:')).toBeVisible();
-	await expect(page.getByText('Not drawn yet')).toHaveCount(4);
+	await expect(page.locator('.designs .placeholder', { hasText: 'Not created' })).toHaveCount(4);
 	const flow = page.getByRole('navigation', { name: 'How the character is made' });
 	await expect(flow.getByRole('listitem').filter({ hasText: 'Profile' })).toContainText(
 		'up to date'
@@ -55,10 +55,10 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	const outfit = profile.getByLabel('Outfit and props', { exact: true });
 	await outfit.fill('a red traveling kimono');
 	await outfit.blur();
-	await expect(profile.getByText('Kept', { exact: true })).toBeVisible();
+	await expect(profile.getByText('Locked', { exact: true })).toBeVisible();
 
-	// Update everything: the profile, then the designs, then their pictures.
-	await page.getByRole('button', { name: 'Update everything not kept' }).click();
+	// Regenerate everything: the profile, then the designs, then their pictures.
+	await page.getByRole('button', { name: 'Regenerate everything out of date' }).click();
 	const options = page.getByRole('button', { name: /^Use design \d as reference$/ });
 	await expect(options).toHaveCount(4);
 	await expect(flow.getByRole('listitem').filter({ hasText: 'Option pictures' })).toContainText(
@@ -74,13 +74,13 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	await expect(page.getByRole('img', { name: 'Aiko reference' })).toBeVisible();
 	await expect(steps(page).getByText('1/1')).toBeVisible();
 
-	await page.getByRole('button', { name: 'Draw the character sheet' }).click();
+	await page.getByRole('button', { name: 'Generate the character sheet' }).click();
 	await expect(page.getByRole('img', { name: 'Aiko: Back' })).toBeVisible();
 	await expect(page.getByRole('img', { name: /^Aiko: / })).toHaveCount(8);
 	const side = page.locator('#sheet figure').filter({ hasText: 'Side' });
-	await side.getByText('Redraw…').click();
-	await side.getByLabel('Guidance (optional)').fill('looking over her shoulder');
-	await side.getByRole('button', { name: 'Redraw Side' }).click();
+	await expect(side.getByRole('button', { name: 'Regenerate Side' })).toHaveCount(0);
+	await side.getByLabel('Amendment for Side').fill('looking over her shoulder');
+	await side.getByRole('button', { name: 'Regenerate Side' }).click();
 	await expect(side.getByText('Version 2 of 2')).toBeVisible();
 
 	await page.getByRole('link', { name: '← Characters' }).click();
@@ -96,7 +96,7 @@ test('asks for a style sample before drawing', async ({ signedIn: page }) => {
 	await page.getByLabel('Name (optional)').fill('Goro');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Goro', level: 1 })).toBeVisible();
-	await expect(page.getByRole('button', { name: /Draw/ })).toHaveCount(0);
+	await expect(page.getByRole('button', { name: /pictures/ })).toHaveCount(0);
 	await expect(page.getByText('start the style')).toBeVisible();
 });
 
@@ -119,13 +119,13 @@ test('draws a series logo from the protagonist, used across the series', async (
 	await readyStyle(page);
 	const logo = page.locator('section').filter({ hasText: '4. Series logo' });
 	await expect(logo.getByText('None with a reference picture yet')).toBeVisible();
-	await expect(logo.getByRole('button', { name: 'Draw the logo' })).toHaveCount(0);
+	await expect(logo.getByRole('button', { name: 'Generate the logo' })).toHaveCount(0);
 
 	await steps(page).getByRole('link', { name: 'Characters' }).click();
 	await page.getByLabel('Describe them').fill('a runaway girl with a staff');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Aiko', level: 1 })).toBeVisible();
-	await page.getByRole('button', { name: 'Update everything not kept' }).click();
+	await page.getByRole('button', { name: 'Regenerate everything out of date' }).click();
 	const options = page.getByRole('button', { name: /^Use design \d as reference$/ });
 	await expect(options).toHaveCount(4);
 	await options.first().click();
@@ -133,7 +133,7 @@ test('draws a series logo from the protagonist, used across the series', async (
 
 	await steps(page).getByRole('link', { name: 'Style' }).click();
 	await expect(logo.getByRole('link', { name: 'Aiko' })).toBeVisible();
-	await logo.getByRole('button', { name: 'Draw the logo' }).click();
+	await logo.getByRole('button', { name: 'Generate the logo' }).click();
 	await expect(logo.getByRole('img', { name: 'Series logo' })).toBeVisible();
 	await expect(logo.getByText('Version 1 of 1')).toBeVisible();
 	// The logo stands for the series in the sidebar and on the overview.

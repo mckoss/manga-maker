@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { resolve } from '$app/paths';
 	import VersionNav from '#lib/components/VersionNav.svelte';
-	import { outOfDateText } from '#lib/components/labels.js';
+	import Regenerate from '#lib/components/Regenerate.svelte';
 	import type { LogoDetail } from '#lib/server/logos.js';
 
 	/**
@@ -56,34 +56,20 @@
 				your default location as its background.
 			</p>
 		{/if}
-		{#if shown?.outOfDate.length}
-			<p class="why">{outOfDateText(shown.outOfDate)}</p>
-		{/if}
-		{#if item.error && !item.pending}<p class="error">The last attempt failed: {item.error}</p>{/if}
-
 		{#if item.pending}
 			<form method="POST" action="?/stopLogo" use:enhance class="row">
-				<span class="hint"><span class="spinner"></span> Drawing the logo…</span>
-				<button type="submit" class="danger small">Stop drawing</button>
+				<span class="hint"><span class="spinner"></span> Generating the logo…</span>
+				<button type="submit" class="danger small">Stop</button>
 			</form>
-		{:else if logo.canDraw && !item.locked}
-			<form method="POST" action="?/drawLogo" use:enhance class="draw">
-				<label>
-					Guidance for the AI (optional)
-					<textarea name="guidance" rows="2" placeholder="Sword raised, cherry blossoms behind…"
-					></textarea>
-				</label>
-				<div class="row">
-					<button type="submit" class:secondary={Boolean(current)}
-						>{current ? 'Redraw the logo' : 'Draw the logo'}</button
-					>
-					{#if current?.seed}
-						<label class="check"
-							><input type="checkbox" name="seed" value={current.seed} /> keep seed {current.seed}</label
-						>
-					{/if}
-				</div>
-			</form>
+		{:else}
+			<Regenerate
+				{item}
+				label="the logo"
+				action="drawLogo"
+				seed
+				placeholder="sword raised, cherry blossoms behind"
+				canGenerate={logo.canDraw}
+			/>
 		{/if}
 		{#if current}
 			<VersionNav {item} {shown} label="Logo" scope="series" onview={(v) => (viewId = v)} />
@@ -97,14 +83,15 @@
 			</a>
 		{:else}
 			<div class="placeholder">
-				{#if item.pending}<span class="spinner"></span> Drawing…{:else}No logo yet{/if}
+				{#if item.pending}<span class="spinner"></span> Generating…{:else}Not created{/if}
 			</div>
 		{/if}
 	</figure>
 </div>
 
 <style>
-	/* What the logo is drawn from on the left, the logo on the right. */
+	/* What the logo is drawn from on the left,
+	the logo on the right. */
 	.logo {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 15rem;
@@ -146,21 +133,6 @@
 		padding: var(--space-2) var(--space-3);
 		border: var(--border-control);
 		border-left: 4px solid var(--shu);
-	}
-	.why {
-		color: var(--warn);
-		font-size: 13px;
-	}
-	.draw {
-		display: grid;
-		gap: var(--space-2);
-	}
-	.draw .row {
-		margin: 0;
-	}
-	.check {
-		font-size: 13px;
-		color: var(--tone-60);
 	}
 	figure {
 		margin: 0;
