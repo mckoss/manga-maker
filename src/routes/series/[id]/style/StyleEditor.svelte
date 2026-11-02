@@ -6,16 +6,21 @@
 	import type { PageData } from './$types';
 	import PictureCard from './PictureCard.svelte';
 	import QuestionsCard from './QuestionsCard.svelte';
+	import LogoCard from './LogoCard.svelte';
 	import TextItemCard from '#lib/components/TextItemCard.svelte';
 
 	type Editor = NonNullable<PageData['editor']>;
 	let {
 		ed,
+		logo,
+		logline,
 		colorModes,
 		models,
 		form
 	}: {
 		ed: Editor;
+		logo: PageData['logo'];
+		logline: string;
 		colorModes: PageData['colorModes'];
 		models: PageData['models'];
 		form: { error?: string; message?: string } | null;
@@ -23,7 +28,7 @@
 
 	// While AI jobs run, reload the page data every two seconds to show progress.
 	$effect(() => {
-		if (!ed.busy) return;
+		if (!ed.busy && !logo?.item.pending) return;
 		const timer = setInterval(() => invalidateAll(), 2000);
 		return () => clearInterval(timer);
 	});
@@ -54,6 +59,7 @@
 	<li>Your description</li>
 	<li>Style prompt</li>
 	<li>Sample scenes and pictures</li>
+	<li>Series logo</li>
 </ol>
 <p class="hint">
 	Each step is made from the ones before it. When an earlier step changes, what was made from it is
@@ -182,6 +188,11 @@
 			</div>
 		</div>
 	{/each}
+</section>
+
+<section>
+	<h2>4. Series logo</h2>
+	{#if logo}<LogoCard {logo} seriesId={id} {logline} />{/if}
 </section>
 
 <section class="danger-zone">

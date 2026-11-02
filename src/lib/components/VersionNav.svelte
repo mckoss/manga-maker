@@ -14,6 +14,7 @@
 		shown,
 		label,
 		lockable = true,
+		scope = '',
 		onview
 	}: {
 		item: ItemView;
@@ -21,6 +22,8 @@
 		label: string;
 		/** False for the user's own inputs, which are never regenerated. */
 		lockable?: boolean;
+		/** Sent with each action, for items outside the page's own scope ("series"). */
+		scope?: string;
 		onview: (id: number) => void;
 	} = $props();
 
@@ -58,6 +61,7 @@
 	<div class="nav" role="group" aria-label="{label} versions">
 		{#if lockable}
 			<form method="POST" action="?/lock" use:enhance class="padlock">
+				{#if scope}<input type="hidden" name="scope" value={scope} />{/if}
 				<input type="hidden" name="itemId" value={item.id} />
 				<input type="hidden" name="locked" value={item.locked ? '' : 'on'} />
 				<button
@@ -109,6 +113,7 @@
 	<div class="actions">
 		{#if !isCurrent}
 			<form method="POST" action="?/useVersion" use:enhance>
+				{#if scope}<input type="hidden" name="scope" value={scope} />{/if}
 				<input type="hidden" name="versionId" value={shown.id} />
 				<button type="submit" class="secondary small">Use this version</button>
 				{#if lockable && !item.locked}
@@ -117,6 +122,7 @@
 			</form>
 		{/if}
 		<form method="POST" action="?/deleteVersion" use:enhance onsubmit={confirmLocked}>
+			{#if scope}<input type="hidden" name="scope" value={scope} />{/if}
 			<input type="hidden" name="versionId" value={shown.id} />
 			<button type="submit" class="secondary small" aria-label="Delete this version of {label}"
 				>Delete</button
@@ -124,6 +130,7 @@
 		</form>
 		{#if item.versions.length > 1}
 			<form method="POST" action="?/deleteOthers" use:enhance onsubmit={confirmOthers}>
+				{#if scope}<input type="hidden" name="scope" value={scope} />{/if}
 				<input type="hidden" name="itemId" value={item.id} />
 				<button type="submit" class="secondary small">Delete older</button>
 			</form>

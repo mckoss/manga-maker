@@ -1,6 +1,6 @@
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from './db';
-import { chapters, characters, series, type ReadingDirection } from './db/schema';
+import { chapters, characters, items, series, versions, type ReadingDirection } from './db/schema';
 import { deleteScope } from './versions';
 import { copyStyle, createStyle, deleteStyle, listStyles, type StyleInput } from './styles';
 
@@ -17,6 +17,26 @@ export function isReadingDirection(value: string): value is ReadingDirection {
 
 /** none: not started; started: no sample picture yet; ready: the rest can be drawn. */
 export type StyleStatus = 'none' | 'started' | 'ready';
+
+/** The scope of the series' own items, such as its logo. */
+export const seriesScope = (seriesId: number) => `series:${seriesId}`;
+export const LOGO_KIND = 'logo';
+
+/** Each series' current logo thumbnail, by series id. */
+function logoThumbs(db: Db, seriesIds: number[]): Map<number, string> {
+	if (!seriesIds.length) return new Map();
+	const rows = db
+		.select({ scope: items.scope, thumb: versions.thumbHash })
+		.from(items)
+		.innerJoin(versions, eq(versions.id, items.currentVersionId))
+		.where(and(eq(items.kind, LOGO_KIND), inArray(items.scope, seriesIds.map(seriesScope))))
+		.all();
+	return new Map(
+		rows
+			.filter((r): r is { scope: string; thumb: string } => Boolean(r.thumb))
+			.map((r) => [Number(r.scope.split(':')[1]), r.thumb])
+	);
+}
 
 export function ownedSeries(db: Db, ownerId: number, seriesId: number) {
 	const row = db
@@ -43,22 +63,28 @@ export function listSeries(db: Db, ownerId: number) {
 			.all()
 			.map((r) => [r.seriesId, r.count])
 	);
-	return db
+	const rows = db
 		.select()
 		.from(series)
 		.where(eq(series.ownerId, ownerId))
 		.orderBy(desc(series.updatedAt), desc(series.id))
-		.all()
-		.map((row) => {
-			const style = row.styleId ? styles.get(row.styleId) : undefined;
-			return {
-				...row,
-				chapterCount: chapterCounts.get(row.id) ?? 0,
-				styleStatus: (style?.ready ? 'ready' : style ? 'started' : 'none') as StyleStatus,
-				// Until there is a cover, the style's figure sample stands in for one.
-				thumb: style?.thumbs[0] ?? null
-			};
-		});
+		.all();
+	const logos = logoThumbs(
+		db,
+		rows.map((r) => r.id)
+	);
+	return rows.map((row) => {
+		const style = row.styleId ? styles.get(row.styleId) : undefined;
+		return {
+			...row,
+			chapterCount: chapterCounts.get(row.id) ?? 0,
+			styleStatus: (style?.ready ? 'ready' : style ? 'started' : 'none') as StyleStatus,
+			/** The series logo, if it has one. */
+			logo: logos.get(row.id) ?? null,
+			// The cover: the logo, or until there is one the style's figure sample.
+			thumb: logos.get(row.id) ?? style?.thumbs[0] ?? null
+		};
+	});
 }
 
 export function getSeries(db: Db, ownerId: number, seriesId: number) {
@@ -116,6 +142,7 @@ export function deleteSeries(db: Db, ownerId: number, seriesId: number): void {
 			.all()) {
 			deleteScope(db, `character:${id}`);
 		}
+		deleteScope(db, seriesScope(seriesId));
 		db.delete(series).where(eq(series.id, seriesId)).run();
 	});
 }

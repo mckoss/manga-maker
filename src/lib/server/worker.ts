@@ -3,6 +3,7 @@ import { getDb } from './db';
 import { Worker } from './jobs';
 import { characterJobHandlers } from './characters';
 import { styleJobHandlers } from './styles';
+import { logoJobHandlers } from './logos';
 
 // Kept on globalThis so dev-mode module reloads replace the worker instead of
 // starting a second one alongside it.
@@ -20,7 +21,8 @@ export function startWorker(): void {
 	g[KEY]?.stop();
 	const worker = new Worker(getDb(), createAiServices(), {
 		...styleJobHandlers,
-		...characterJobHandlers
+		...characterJobHandlers,
+		...logoJobHandlers
 	});
 	g[KEY] = worker;
 	worker.start();
