@@ -150,8 +150,8 @@
 		aspect-ratio: 3 / 4;
 		object-fit: cover;
 		object-position: top;
-		border-radius: 6px;
-		border: 1px solid var(--line);
+		border: var(--border-panel);
+		box-sizing: border-box;
 		background: var(--card);
 	}
 	.no-picture {

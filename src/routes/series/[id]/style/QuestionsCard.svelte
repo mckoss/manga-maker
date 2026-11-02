@@ -89,8 +89,19 @@
 		flex-wrap: wrap;
 		gap: 0.4rem;
 	}
-	.chosen {
-		border-color: var(--accent);
-		color: var(--accent);
+	/* Suggestions are fragments of the AI's speech: rounded chips */
+	.suggestions :global(button) {
+		padding: 6px 12px;
+		font: 600 13px/1.2 var(--font-letter);
+		border-radius: var(--radius-balloon);
+	}
+	.suggestions :global(button:hover:not(:disabled)) {
+		transform: none;
+		box-shadow: var(--shadow-ink-sm);
+	}
+	.suggestions :global(button.chosen) {
+		border-color: var(--shu);
+		background: var(--shu-tint);
+		color: var(--shu-dark);
 	}
 </style>

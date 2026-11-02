@@ -13,8 +13,9 @@
 	.soon {
 		display: inline-block;
 		padding: 0.4rem 0.8rem;
-		border: 1px dashed var(--line);
-		border-radius: 6px;
+		border: var(--border-dash);
 		color: var(--muted);
+		background: var(--tone-dots), var(--surface-panel);
+		font: var(--type-hint);
 	}
 </style>

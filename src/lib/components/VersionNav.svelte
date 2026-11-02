@@ -117,35 +117,77 @@
 {/if}
 
 <style>
+	/* A low-profile control row: the element it controls carries the weight. */
 	.nav,
 	.actions {
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.4rem 0.75rem;
-		font-size: 0.85rem;
+		gap: var(--space-1) var(--space-3);
+		font: 400 12px/1.4 var(--font-body);
 	}
 	.actions {
-		margin-top: 0.35rem;
+		margin-top: var(--space-1);
 	}
 	.actions form {
 		display: flex;
-		gap: 0.4rem;
+		gap: var(--space-3);
 		margin: 0;
 	}
 	.pager {
 		display: inline-flex;
 		align-items: center;
-		gap: 0.3rem;
+	}
+	.pager button {
+		width: 24px;
+		height: 24px;
+		padding: 0;
+		border: none;
+		background: transparent;
+		color: var(--tone-60);
+		font: 400 18px/1 var(--font-body);
+	}
+	.pager button:hover:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+		background: var(--surface-sunk);
+		color: var(--ink);
+	}
+	.pager button:disabled {
+		color: var(--tone-20);
+		opacity: 1;
 	}
 	.count {
 		min-width: 6.5rem;
 		text-align: center;
+		font: 500 11px/1 var(--font-mono);
+		color: var(--ink);
 	}
 	.meta {
-		color: var(--muted);
+		color: var(--tone-60);
 	}
-	.lock {
-		font-size: 0.75rem;
+	.meta em {
+		font-style: normal;
+		color: var(--shu);
+	}
+	.actions button {
+		padding: 0;
+		border: none;
+		background: none;
+		color: var(--ink);
+		font: 700 12px var(--font-body);
+		text-decoration: underline;
+		text-decoration-color: var(--shu);
+		text-decoration-thickness: 2px;
+		text-underline-offset: 3px;
+	}
+	.actions button:hover:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+		color: var(--shu);
+	}
+	.actions form[action*='delete'] button {
+		font-weight: 400;
+		text-decoration-color: var(--tone-40);
 	}
 </style>

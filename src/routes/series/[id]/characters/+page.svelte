@@ -102,8 +102,8 @@
 		aspect-ratio: 3 / 4;
 		object-fit: cover;
 		object-position: top;
-		border-radius: 6px;
-		border: 1px solid var(--line);
+		border: var(--border-panel);
+		box-sizing: border-box;
 		background: var(--card);
 	}
 	.no-picture {
@@ -112,16 +112,28 @@
 		font-size: 2.5rem;
 		color: var(--muted);
 	}
+	.cast img,
+	.no-picture {
+		transition:
+			transform var(--dur-fast) var(--ease-out),
+			box-shadow var(--dur-fast) var(--ease-out);
+	}
 	.cast a:hover img,
 	.cast a:hover .no-picture {
-		border-color: var(--accent);
+		transform: translate(-2px, -2px);
+		box-shadow: var(--shadow-ink);
+	}
+	.no-picture {
+		font-family: var(--font-display);
+		color: var(--ink);
 	}
 	small {
 		color: var(--muted);
 	}
 	.notice {
 		padding: 0.6rem 0.9rem;
-		border-left: 3px solid var(--accent);
-		background: var(--card);
+		border: var(--border-control);
+		border-left: 4px solid var(--shu);
+		background: var(--surface-panel);
 	}
 </style>

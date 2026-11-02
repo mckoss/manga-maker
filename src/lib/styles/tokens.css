@@ -1,0 +1,135 @@
+/*
+ * Manga Maker design system tokens, from the Claude Design project
+ * "Manga Maker Design System" (tokens/colors, typography, spacing, borders,
+ * motifs). Ink on paper, one vermilion spot color, sharp corners, hard
+ * offset shadows. Light only: the product is printed paper.
+ */
+:root {
+	/* Ink: sumi black, never pure #000 on paper */
+	--ink: #141210;
+	--ink-2: #2b2825;
+	/* Paper: warm cream, matched to the logo ground */
+	--paper: #faf4e8;
+	--paper-2: #f2eadb;
+	--paper-3: #e8dfcd;
+	/* Screentones: the only grays */
+	--tone-10: #e6decf;
+	--tone-20: #cfc6b5;
+	--tone-40: #9c978d;
+	--tone-60: #6e6a62;
+	--tone-80: #403d38;
+	/* Spot: vermilion (hanko red). One accent, used sparingly */
+	--shu: #d7261e;
+	--shu-dark: #a81b14;
+	--shu-tint: #f9e2df;
+	/* Status: text-only inks, never fills */
+	--ok: #1e6b34;
+	--warn: #9a5b00;
+	--danger: var(--shu);
+
+	--surface-page: var(--paper);
+	--surface-desk: var(--paper-2);
+	--surface-panel: #fffdf8;
+	--surface-sunk: var(--paper-3);
+	--surface-inverse: var(--ink);
+	--text-strong: var(--ink);
+	--text-body: var(--ink-2);
+	--text-muted: var(--tone-60);
+	--text-faint: var(--tone-40);
+	--text-inverse: var(--paper);
+	--text-accent: var(--shu);
+	--border-panel-color: var(--ink);
+	--border-rule-color: var(--tone-20);
+	--accent: var(--shu);
+	--accent-hover: var(--shu-dark);
+	--focus-ring: var(--shu);
+
+	/* Type */
+	--font-display: 'Dela Gothic One', 'Zen Kaku Gothic New', system-ui, sans-serif;
+	--font-letter: 'Shantell Sans', 'Comic Neue', system-ui, sans-serif;
+	--font-body: 'Zen Kaku Gothic New', system-ui, sans-serif;
+	--font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+	--fs-cover: 72px;
+	--fs-h1: 40px;
+	--fs-h2: 26px;
+	--fs-h3: 19px;
+	--fs-body: 16px;
+	--fs-small: 14px;
+	--fs-caption: 12px;
+	--fs-micro: 11px;
+
+	--lh-tight: 1.1;
+	--lh-snug: 1.3;
+	--lh-body: 1.6;
+
+	--tracking-display: 0.01em;
+	--tracking-caps: 0.12em;
+	--tracking-letter: 0.02em;
+
+	--type-title: 400 var(--fs-h1) / var(--lh-tight) var(--font-display);
+	--type-heading: 400 var(--fs-h2) / var(--lh-snug) var(--font-display);
+	--type-subheading: 700 var(--fs-h3) / var(--lh-snug) var(--font-body);
+	--type-body: 400 var(--fs-body) / var(--lh-body) var(--font-body);
+	--type-hint: 400 var(--fs-small) / var(--lh-body) var(--font-body);
+	--type-balloon: 600 15px/1.35 var(--font-letter);
+	--type-label: 700 var(--fs-micro) / 1 var(--font-body);
+
+	/* Spacing: 4px base, gutters from tankōbon layout */
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 24px;
+	--space-6: 32px;
+	--space-7: 48px;
+	--space-8: 64px;
+	--space-9: 96px;
+	--gutter: 12px;
+	--gutter-wide: 20px;
+	--page-margin: 32px;
+	--content-max: 1152px;
+	--sidebar-w: 224px;
+
+	/* Borders are the structure */
+	--border-hair: 1px solid var(--ink);
+	--border-panel: 3px solid var(--ink);
+	--border-heavy: 5px solid var(--ink);
+	--border-control: 2px solid var(--ink);
+	--border-rule-1: 1px solid var(--tone-20);
+	--border-dash: 2px dashed var(--tone-40);
+	--border-stale: 2px dashed var(--warn);
+
+	/* Corners: sharp. Soft only for speech balloons, chips and seals */
+	--radius-0: 0;
+	--radius-1: 2px;
+	--radius-balloon: 22px;
+	--radius-round: 999px;
+
+	/* Shadows: no blur, hard offset ink */
+	--shadow-ink-sm: 2px 2px 0 var(--ink);
+	--shadow-ink: 4px 4px 0 var(--ink);
+	--shadow-ink-lg: 8px 8px 0 var(--ink);
+	--shadow-shu: 4px 4px 0 var(--shu);
+
+	/* Motion: cut, don't dissolve */
+	--ease-snap: cubic-bezier(0.2, 0.9, 0.3, 1.2);
+	--ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
+	--dur-fast: 90ms;
+	--dur-base: 160ms;
+	--dur-slow: 320ms;
+
+	/* Print motifs */
+	--tone-dots: radial-gradient(var(--tone-40) 1px, transparent 1.3px) 0 0 / 6px 6px;
+	--focus-lines: repeating-conic-gradient(
+		from 0deg at 50% 50%,
+		var(--ink) 0deg 0.6deg,
+		transparent 0.6deg 3.1deg,
+		var(--ink) 3.1deg 3.5deg,
+		transparent 3.5deg 7deg
+	);
+	--trim-len: 18px;
+	--trim-off: 10px;
+
+	color-scheme: light;
+}

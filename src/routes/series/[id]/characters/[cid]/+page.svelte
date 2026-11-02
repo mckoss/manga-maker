@@ -315,8 +315,8 @@
 		width: 100%;
 		aspect-ratio: 4 / 7;
 		object-fit: cover;
-		border-radius: 6px;
-		border: 1px solid var(--line);
+		border: var(--border-panel);
+		box-sizing: border-box;
 	}
 	.faded {
 		opacity: 0.5;

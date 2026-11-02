@@ -213,7 +213,7 @@
 	.pipeline li:not(:last-child)::after {
 		content: '→';
 		margin: 0 0.5rem;
-		color: var(--muted);
+		color: var(--ink);
 	}
 	section :global(.card) {
 		margin-bottom: 0.75rem;
