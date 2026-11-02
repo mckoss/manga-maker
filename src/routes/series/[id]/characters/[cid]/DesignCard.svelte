@@ -149,8 +149,9 @@
 		</div>
 		{#if shownPicture?.outOfDate.length}
 			<p class="why">
-				{outOfDateText(shownPicture.outOfDate)}{#if !picture.locked && !picture.pending}{' '}Redraw
-					it to bring it up to date.{/if}
+				{outOfDateText(shownPicture.outOfDate)}{#if !picture.locked && !picture.pending}<span
+						class="next">Redraw it to bring it up to date.</span
+					>{/if}
 			</p>
 		{/if}
 
@@ -255,6 +256,9 @@
 		gap: 0.35rem;
 		align-items: center;
 		font-size: 0.9rem;
+	}
+	.next {
+		margin-left: 0.25em;
 	}
 	.why {
 		margin: 0;

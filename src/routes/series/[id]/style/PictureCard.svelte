@@ -36,8 +36,9 @@
 		{#if shown?.outOfDate.length}<span class="badge warn">Out of date</span>{/if}
 	</div>
 	{#if shown?.outOfDate.length}<p class="why">
-			{outOfDateText(shown.outOfDate)}{#if !item.locked && !item.pending}{' '}Redraw it to bring it
-				up to date.{/if}
+			{outOfDateText(shown.outOfDate)}{#if !item.locked && !item.pending}<span class="next"
+					>Redraw it to bring it up to date.</span
+				>{/if}
 		</p>{/if}
 	{#if shown}
 		<p class="meta">
@@ -111,6 +112,9 @@
 		font-size: 0.75rem;
 		color: var(--muted);
 		overflow-wrap: anywhere;
+	}
+	.next {
+		margin-left: 0.25em;
 	}
 	.why {
 		color: var(--warn);
