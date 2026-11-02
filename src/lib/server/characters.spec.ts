@@ -56,10 +56,19 @@ let seriesId: number;
 let styleId: number;
 /** Profile replies, in turn: each develop round gets the next one. */
 let round = 0;
+/** Make the designs the AI writes differ from its first ones. */
+let olderDesigns = false;
 
 function reply(messages: ChatMessage[]) {
 	if (messages[0].content.includes('sample scenes')) return fakeReply(messages);
-	if (messages[0].content.includes('different visual designs')) return fakeReply(messages);
+	if (messages[0].content.includes('different visual designs')) {
+		const r = fakeReply(messages) as { designs: { appearance: string }[] };
+		if (!olderDesigns) return r;
+		return {
+			...r,
+			designs: r.designs.map((d) => ({ ...d, appearance: `${d.appearance}, older` }))
+		};
+	}
 	if (messages[0].content.includes('art director')) return { prompt: 'bold ink', notes: '' };
 	round++;
 	return {
@@ -77,6 +86,7 @@ function reply(messages: ChatMessage[]) {
 
 beforeEach(async () => {
 	round = 0;
+	olderDesigns = false;
 	db = openDb(':memory:');
 	process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mm-assets-'));
 	image = new FakeImageModel();
@@ -362,6 +372,17 @@ describe('characters', () => {
 		detail = getCharacter(db, owner, id);
 		expect(detail.sheet.every((s) => s.status === 'ok')).toBe(true);
 		expect(image.edits.filter((e) => e.prompt.includes('over one shoulder'))).toHaveLength(2);
+	});
+
+	it('draws new designs as soon as they are written', async () => {
+		const id = await drawn();
+		olderDesigns = true;
+		requestDesigns(db, owner, id);
+		await worker.drain();
+		const detail = getCharacter(db, owner, id);
+		expect(detail.designs.every((d) => d.pictureStatus === 'ok')).toBe(true);
+		expect(detail.designs.every((d) => d.picture.versions.length === 2)).toBe(true);
+		expect(detail.due.pictures).toBe(0);
 	});
 
 	it('follows the reference in use, even when the profile has moved on', async () => {

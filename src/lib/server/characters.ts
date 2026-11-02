@@ -904,7 +904,10 @@ export function requestProfile(
 	return startProfile(db, s, kinds, { guidance: opts.guidance });
 }
 
-/** Ask the AI for new designs (all not kept, or the ones given). They are not drawn yet. */
+/**
+ * Ask the AI for new designs (all not kept, or the ones given), then draw
+ * each one's picture, so every design shows what it looks like.
+ */
 export function requestDesigns(
 	db: Db,
 	ownerId: number,
@@ -915,7 +918,7 @@ export function requestDesigns(
 	const views = describeScope(db, characterScope(characterId), () => null, {});
 	const keys = opts.keys ?? DESIGN_KEYS.filter((k) => !views.get(`design:${k}`)?.locked);
 	if (!keys.length) throw new CharacterError('Every design is kept.');
-	return startDesigns(db, s, keys, { guidance: opts.guidance });
+	return startDesigns(db, s, keys, { guidance: opts.guidance, cascade: ['pictures'] });
 }
 
 /** Draw design pictures: the ones given, or every one not kept that has a design. */

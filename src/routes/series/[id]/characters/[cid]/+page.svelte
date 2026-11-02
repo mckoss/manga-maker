@@ -357,8 +357,8 @@
 	}
 	.designs {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-		gap: 1rem;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--gutter);
 		margin-top: 0.75rem;
 	}
 	.sheet {
