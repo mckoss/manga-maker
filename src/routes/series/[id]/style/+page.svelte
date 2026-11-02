@@ -96,7 +96,6 @@
 		max-width: 7rem;
 		aspect-ratio: 1;
 		object-fit: cover;
-		border-radius: 4px;
 	}
 	.reuse form {
 		justify-content: space-between;

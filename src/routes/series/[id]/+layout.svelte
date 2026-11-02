@@ -22,8 +22,12 @@
 		<a
 			class="title"
 			href={resolve('/series/[id]', { id })}
-			aria-current={current === '' ? 'page' : undefined}>{data.series.title}</a
+			aria-current={current === '' ? 'page' : undefined}
+			><span class="seal" aria-hidden="true">{data.series.title.slice(0, 1)}</span><span
+				>{data.series.title}</span
+			></a
 		>
+		<p class="group">For the whole series</p>
 		<ol class="steps">
 			{#each SERIES_PHASES as phase (phase.key)}
 				<li>
@@ -88,31 +92,48 @@
 <style>
 	.series {
 		display: grid;
-		grid-template-columns: 13rem minmax(0, 1fr);
-		gap: 2rem;
+		grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+		gap: var(--space-6);
 		align-items: start;
 	}
 	.sidebar {
 		position: sticky;
-		top: 1rem;
+		top: var(--space-4);
 		display: flex;
 		flex-direction: column;
-		gap: 0.5rem;
 	}
 	.title {
-		font-weight: 600;
-		padding: 0.4rem 0.6rem;
-		border-radius: 6px;
-		color: inherit;
+		display: flex;
+		gap: 10px;
+		align-items: center;
+		padding: 10px;
+		border: var(--border-panel);
+		background: var(--surface-panel);
+		color: var(--ink);
+		font: 400 16px/1.15 var(--font-display);
 		text-decoration: none;
 	}
+	.title[aria-current='page'] {
+		background: var(--ink);
+		color: var(--paper);
+	}
+	.seal {
+		flex: none;
+		width: 30px;
+		height: 30px;
+		display: grid;
+		place-items: center;
+		border-radius: 50%;
+		background: var(--shu);
+		color: #fff;
+		font: 400 13px/1 var(--font-display);
+	}
 	.group {
-		margin: 0.75rem 0 0;
-		padding: 0 0.6rem;
-		font-size: 0.75rem;
+		margin: var(--space-4) 10px 6px;
+		font: var(--type-label);
+		letter-spacing: var(--tracking-caps);
 		text-transform: uppercase;
-		letter-spacing: 0.05em;
-		color: var(--muted);
+		color: var(--tone-60);
 	}
 	.chapters {
 		list-style: none;
@@ -120,17 +141,22 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.1rem;
+		gap: 2px;
 	}
 	.chapter {
 		display: block;
-		padding: 0.4rem 0.6rem;
-		border-radius: 6px;
-		color: inherit;
+		padding: 7px 10px;
+		border-left: 4px solid transparent;
+		color: var(--ink);
+		font: 500 14px var(--font-body);
 		text-decoration: none;
 	}
+	.chapter[aria-current='page'] {
+		background: var(--surface-sunk);
+		border-left-color: var(--shu);
+	}
 	.chapters .steps {
-		margin-left: 0.75rem;
+		margin: 2px 0 var(--space-2) var(--space-3);
 	}
 	ol {
 		list-style: none;
@@ -139,7 +165,7 @@
 		padding: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.1rem;
+		gap: 2px;
 	}
 	li {
 		counter-increment: step;
@@ -147,31 +173,44 @@
 	ol a {
 		display: flex;
 		align-items: baseline;
-		justify-content: space-between;
-		gap: 0.5rem;
-		padding: 0.4rem 0.6rem;
-		border-radius: 6px;
-		color: inherit;
+		gap: var(--space-2);
+		padding: 7px 10px;
+		border-left: 4px solid transparent;
+		color: var(--ink);
 		text-decoration: none;
 	}
+	ol a span {
+		margin-right: auto;
+		font: 700 14px var(--font-body);
+	}
 	ol a span::before {
-		content: counter(step) '. ';
-		color: var(--muted);
+		content: counter(step, decimal-leading-zero);
+		display: inline-block;
+		min-width: 22px;
+		font: 700 11px var(--font-mono);
+		color: var(--tone-60);
 	}
-	a:hover {
-		background: var(--card);
+	ol a:hover,
+	.chapter:hover {
+		background: var(--surface-sunk);
+		color: var(--ink);
 	}
-	a[aria-current='page'] {
-		background: var(--card);
-		box-shadow: inset 3px 0 0 var(--accent);
+	ol a[aria-current='page'] {
+		background: var(--ink);
+		color: var(--paper);
+		border-left-color: var(--shu);
+	}
+	ol a[aria-current='page'] span::before,
+	ol a[aria-current='page'] .status {
+		color: var(--tone-20);
 	}
 	.status {
-		color: var(--muted);
-		font-size: 0.75rem;
+		font: 400 11px var(--font-body);
+		color: var(--tone-60);
 	}
 	.status.ready,
 	.status.approved {
-		color: var(--accent);
+		color: var(--ok);
 	}
 	.content {
 		min-width: 0;
@@ -179,11 +218,17 @@
 	@media (max-width: 720px) {
 		.series {
 			grid-template-columns: minmax(0, 1fr);
-			gap: 1rem;
+			gap: var(--space-4);
 		}
 		.sidebar {
 			position: static;
 			min-width: 0;
+		}
+		.group {
+			display: none;
+		}
+		.title {
+			margin-bottom: var(--space-2);
 		}
 		ol,
 		.chapters {
@@ -193,6 +238,8 @@
 		ol a,
 		.chapter {
 			white-space: nowrap;
+			border-left: none;
+			border-bottom: 4px solid transparent;
 		}
 		.chapters {
 			flex-wrap: wrap;
@@ -206,8 +253,9 @@
 			flex-basis: 100%;
 			margin-left: 0;
 		}
-		a[aria-current='page'] {
-			box-shadow: inset 0 -3px 0 var(--accent);
+		ol a[aria-current='page'],
+		.chapter[aria-current='page'] {
+			border-bottom-color: var(--shu);
 		}
 	}
 </style>

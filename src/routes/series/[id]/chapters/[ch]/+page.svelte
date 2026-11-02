@@ -85,8 +85,8 @@
 
 <style>
 	.logline {
-		font-size: 1.1rem;
-		color: var(--muted);
+		font: 400 18px/1.5 var(--font-body);
+		color: var(--tone-60);
 	}
 	.steps-overview {
 		line-height: 1.8;

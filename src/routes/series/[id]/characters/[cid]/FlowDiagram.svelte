@@ -76,7 +76,7 @@
 
 <style>
 	.flow {
-		margin: 0.75rem 0 1.25rem;
+		margin: var(--space-3) 0 var(--space-5);
 	}
 	ol {
 		list-style: none;
@@ -84,39 +84,55 @@
 		padding: 0;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.35rem;
+		gap: var(--space-2) 0;
 		align-items: stretch;
+		counter-reset: step;
 	}
 	li {
 		display: flex;
 		align-items: center;
-		gap: 0.35rem;
+		counter-increment: step;
 	}
+	/* An ink arrow between steps */
 	li:not(:last-child)::after {
-		content: '→';
-		color: var(--muted);
+		content: '';
+		width: 18px;
+		height: 10px;
+		background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 10' fill='%23141210'%3E%3Cpath d='M0 4h12v2H0z'/%3E%3Cpath d='M11 0l7 5-7 5z'/%3E%3C/svg%3E")
+			center / contain no-repeat;
 	}
 	a {
 		display: grid;
-		padding: 0.4rem 0.6rem;
-		border: 1px solid var(--line);
-		border-radius: 6px;
-		text-decoration: none;
-		color: inherit;
+		gap: 2px;
 		min-width: 7.5rem;
+		padding: 8px 12px;
+		border: var(--border-control);
+		background: var(--surface-panel);
+		color: var(--ink);
+		font: 700 14px/1.2 var(--font-body);
+		text-decoration: none;
+	}
+	a::before {
+		content: counter(step, decimal-leading-zero);
+		font: 700 10px var(--font-mono);
+		color: var(--tone-60);
+	}
+	a:hover {
+		color: var(--ink);
+		box-shadow: var(--shadow-ink-sm);
 	}
 	small {
+		font: 400 11px var(--font-body);
 		color: var(--muted);
-		font-size: 0.75rem;
 	}
 	.state {
-		font-size: 0.8rem;
+		font: 600 12px var(--font-body);
 	}
 	.ok .state {
 		color: var(--ok);
 	}
 	.stale a {
-		border-color: var(--warn);
+		border: var(--border-stale);
 	}
 	.stale .state {
 		color: var(--warn);
@@ -129,8 +145,8 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.75rem;
-		margin-top: 0.6rem;
+		gap: var(--space-3);
+		margin-top: var(--space-3);
 	}
 	form .hint {
 		margin: 0;

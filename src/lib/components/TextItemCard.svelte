@@ -123,12 +123,12 @@
 		gap: 0.5rem;
 	}
 	.head label {
-		font-weight: 600;
+		font: 700 13px/1.2 var(--font-body);
 		margin: 0;
 	}
 	.why {
 		margin: 0;
-		font-size: 0.85rem;
+		font-size: 12px;
 		color: var(--warn);
 	}
 	.mentor {
@@ -142,8 +142,8 @@
 	textarea {
 		width: 100%;
 	}
-	textarea[readonly] {
-		color: var(--muted);
+	.item.stale textarea {
+		border: var(--border-stale);
 	}
 	.save {
 		display: flex;
@@ -152,8 +152,8 @@
 		gap: 0.5rem;
 	}
 	.save .check {
-		font-size: 0.85rem;
-		color: var(--muted);
+		font-size: 13px;
+		color: var(--tone-60);
 	}
 	.regen form {
 		margin-top: 0.4rem;
