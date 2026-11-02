@@ -59,7 +59,7 @@
 <p class="hint">
 	Each step is made from the ones before it. When an earlier step changes, what was made from it is
 	marked <span class="badge warn">Out of date</span>. Every version is kept: browse back with ‹ ›,
-	go back to one, and keep what you're happy with so it is never regenerated.
+	go back to one, and close the padlock on what you're happy with so it is never regenerated.
 	{#if ed.ready}
 		The rest of the series is drawn with the current prompt.
 		<a href={resolve('/series/[id]/characters', { id })}>Next: characters →</a>

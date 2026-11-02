@@ -27,7 +27,6 @@
 
 <header>
 	<a class="name" href={resolve('/')} aria-label="Manga Maker">
-		<img class="seal" src={favicon} alt="" />
 		<span aria-hidden="true">MANGA<span class="dot">·</span>MAKER</span>
 	</a>
 	<span class="version">v{__APP_VERSION__}</span>

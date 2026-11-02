@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { resolve } from '$app/paths';
+	import Landing from '#lib/components/Landing.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -17,11 +18,9 @@
 </div>
 
 {#if data.series.length === 0}
-	<p>
-		Manga Maker walks you through making a comic series, step by step: its style, characters and
-		locations, then for each chapter the plot, script, panels and pages.
-	</p>
-	<p><a class="button" href={resolve('/series/new')}>Start your first series</a></p>
+	<Landing>
+		<a class="button" href={resolve('/series/new')}>Start your first series</a>
+	</Landing>
 {:else}
 	<ul class="collection">
 		{#each data.series as s (s.id)}

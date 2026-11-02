@@ -65,8 +65,9 @@
 		class="badge warn">Out of date</span
 	>, and what comes after shows
 	<span class="badge muted">Earlier step changed</span>; nothing is regenerated until you ask. Every
-	text and picture keeps its versions: browse back with ‹ ›. Keep what you're happy with and the AI
-	won't touch it; what you write yourself is kept unless you untick the box.
+	text and picture keeps its versions: browse back with ‹ ›. Close the padlock on what you're happy
+	with and the AI won't touch it; what you write yourself is locked for you, and you can open it
+	again.
 </p>
 
 {#if data.developing}

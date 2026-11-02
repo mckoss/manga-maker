@@ -93,11 +93,6 @@ header .name .dot {
 header .name:hover {
 	color: var(--ink);
 }
-header .seal {
-	width: 28px;
-	height: 28px;
-	display: block;
-}
 header .version {
 	font: 400 11px var(--font-mono);
 	color: var(--tone-60);
