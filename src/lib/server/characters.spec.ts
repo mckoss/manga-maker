@@ -33,6 +33,7 @@ import {
 	saveText,
 	SHEET_VIEWS,
 	sheetPrompt,
+	stopSheet,
 	syncCharacter,
 	updateOutdated
 } from './characters';
@@ -55,10 +56,19 @@ let seriesId: number;
 let styleId: number;
 /** Profile replies, in turn: each develop round gets the next one. */
 let round = 0;
+/** Make the designs the AI writes differ from its first ones. */
+let olderDesigns = false;
 
 function reply(messages: ChatMessage[]) {
 	if (messages[0].content.includes('sample scenes')) return fakeReply(messages);
-	if (messages[0].content.includes('different visual designs')) return fakeReply(messages);
+	if (messages[0].content.includes('different visual designs')) {
+		const r = fakeReply(messages) as { designs: { appearance: string }[] };
+		if (!olderDesigns) return r;
+		return {
+			...r,
+			designs: r.designs.map((d) => ({ ...d, appearance: `${d.appearance}, older` }))
+		};
+	}
 	if (messages[0].content.includes('art director')) return { prompt: 'bold ink', notes: '' };
 	round++;
 	return {
@@ -76,6 +86,7 @@ function reply(messages: ChatMessage[]) {
 
 beforeEach(async () => {
 	round = 0;
+	olderDesigns = false;
 	db = openDb(':memory:');
 	process.env.DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mm-assets-'));
 	image = new FakeImageModel();
@@ -361,6 +372,64 @@ describe('characters', () => {
 		detail = getCharacter(db, owner, id);
 		expect(detail.sheet.every((s) => s.status === 'ok')).toBe(true);
 		expect(image.edits.filter((e) => e.prompt.includes('over one shoulder'))).toHaveLength(2);
+	});
+
+	it('draws new designs as soon as they are written', async () => {
+		const id = await drawn();
+		olderDesigns = true;
+		requestDesigns(db, owner, id);
+		await worker.drain();
+		const detail = getCharacter(db, owner, id);
+		expect(detail.designs.every((d) => d.pictureStatus === 'ok')).toBe(true);
+		expect(detail.designs.every((d) => d.picture.versions.length === 2)).toBe(true);
+		expect(detail.due.pictures).toBe(0);
+	});
+
+	it('follows the reference in use, even when the profile has moved on', async () => {
+		const id = await drawn();
+		const [first, second] = getCharacter(db, owner, id).designs.map((d) => current(d.picture)!);
+		chooseReference(db, owner, id, first.id);
+		requestSheet(db, owner, id);
+		await worker.drain();
+
+		// The profile changes after the reference was chosen: the reference
+		// is out of date, but the sheet still matches it and stays as it is.
+		saveText(db, owner, id, 'appearance', 'taller, with a scar over one eye', false);
+		let detail = getCharacter(db, owner, id);
+		expect(detail.reference.status).not.toBe('ok');
+		expect(detail.sheet.every((s) => s.status === 'ok')).toBe(true);
+		expect(detail.due.sheet).toBe(0);
+
+		// Views drawn from an older reference can be redrawn from this one.
+		chooseReference(db, owner, id, second.id);
+		detail = getCharacter(db, owner, id);
+		expect(detail.sheet.every((s) => s.status === 'outdated')).toBe(true);
+		expect(detail.due.sheet).toBe(SHEET_VIEWS.length);
+	});
+
+	it('stops drawing the sheet when asked, and when the reference changes', async () => {
+		const id = await drawn();
+		const [first, second] = getCharacter(db, owner, id).designs.map((d) => current(d.picture)!);
+		chooseReference(db, owner, id, first.id);
+		const before = image.edits.length;
+
+		requestSheet(db, owner, id);
+		expect(getCharacter(db, owner, id).sheet.every((s) => s.item.pending)).toBe(true);
+		stopSheet(db, owner, id);
+		await worker.drain();
+		let sheet = getCharacter(db, owner, id).sheet;
+		expect(sheet.some((s) => s.item.pending)).toBe(false);
+		expect(sheet.every((s) => s.status === 'missing')).toBe(true);
+		expect(image.edits).toHaveLength(before);
+
+		// Choosing another reference stops views still being drawn from the old one.
+		requestSheet(db, owner, id);
+		chooseReference(db, owner, id, second.id);
+		await worker.drain();
+		sheet = getCharacter(db, owner, id).sheet;
+		expect(sheet.some((s) => s.item.pending)).toBe(false);
+		expect(image.edits).toHaveLength(before);
+		expect(getCharacter(db, owner, id).due.sheet).toBe(SHEET_VIEWS.length);
 	});
 
 	it('rewrites the whole profile with feedback, except what is kept', async () => {

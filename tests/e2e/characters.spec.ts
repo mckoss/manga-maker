@@ -96,7 +96,7 @@ test('asks for a style sample before drawing', async ({ signedIn: page }) => {
 	await page.getByLabel('Name (optional)').fill('Goro');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Goro', level: 1 })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Draw out-of-date pictures' })).toBeDisabled();
+	await expect(page.getByRole('button', { name: /Draw/ })).toHaveCount(0);
 	await expect(page.getByText('start the style')).toBeVisible();
 });
 

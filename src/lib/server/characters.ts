@@ -347,6 +347,13 @@ export type Status = 'missing' | 'pending' | 'outdated' | 'upstream' | 'ok';
 function statuses(views: Map<string, ItemView>) {
 	const memo = new Map<string, Status>();
 	const view = (slot: string) => views.get(slot);
+	/**
+	 * An earlier step that won't change under what is made from it: kept
+	 * items, and the reference, which only the user chooses (the AI never
+	 * redraws it), so the sheet always follows the reference in use.
+	 */
+	const anchored = (slot: string) =>
+		Boolean(view(slot)?.locked) || (slot === 'reference' && Boolean(view(slot)?.currentId));
 	const status = (slot: string): Status => {
 		const known = memo.get(slot);
 		if (known) return known;
@@ -358,10 +365,7 @@ function statuses(views: Map<string, ItemView>) {
 		else if (!current) result = 'missing';
 		else if (current.outOfDate.length) result = 'outdated';
 		else {
-			const changing = upstreamOf({ kind, key }).some((u) => {
-				if (view(u)?.locked) return false;
-				return status(u) !== 'ok';
-			});
+			const changing = upstreamOf({ kind, key }).some((u) => !anchored(u) && status(u) !== 'ok');
 			result = changing ? 'upstream' : 'ok';
 		}
 		memo.set(slot, result);
@@ -370,7 +374,7 @@ function statuses(views: Map<string, ItemView>) {
 	/** Every earlier step is settled: kept, or up to date. */
 	const settled = (slot: string) => {
 		const [kind, key = ''] = slot.split(':');
-		return upstreamOf({ kind, key }).every((u) => view(u)?.locked || status(u) === 'ok');
+		return upstreamOf({ kind, key }).every((u) => anchored(u) || status(u) === 'ok');
 	};
 	return { status, settled };
 }
@@ -900,7 +904,10 @@ export function requestProfile(
 	return startProfile(db, s, kinds, { guidance: opts.guidance });
 }
 
-/** Ask the AI for new designs (all not kept, or the ones given). They are not drawn yet. */
+/**
+ * Ask the AI for new designs (all not kept, or the ones given), then draw
+ * each one's picture, so every design shows what it looks like.
+ */
 export function requestDesigns(
 	db: Db,
 	ownerId: number,
@@ -911,7 +918,7 @@ export function requestDesigns(
 	const views = describeScope(db, characterScope(characterId), () => null, {});
 	const keys = opts.keys ?? DESIGN_KEYS.filter((k) => !views.get(`design:${k}`)?.locked);
 	if (!keys.length) throw new CharacterError('Every design is kept.');
-	return startDesigns(db, s, keys, { guidance: opts.guidance });
+	return startDesigns(db, s, keys, { guidance: opts.guidance, cascade: ['pictures'] });
 }
 
 /** Draw design pictures: the ones given, or every one not kept that has a design. */
@@ -948,6 +955,15 @@ export function requestSheet(
 		db,
 		s,
 		SHEET_VIEWS.map((v) => v.key).filter((v) => !views.get(`sheet:${v}`)?.locked)
+	);
+}
+
+/** Stop drawing the character sheet: cancel the views not drawn yet. */
+export function stopSheet(db: Db, ownerId: number, characterId: number): void {
+	const s = ownedState(db, ownerId, characterId);
+	dropPending(
+		db,
+		SHEET_VIEWS.map((v) => item(db, s, 'sheet', v.key).id)
 	);
 }
 
@@ -1003,6 +1019,12 @@ export function chooseReference(
 			model: picture.inputs.model ?? ''
 		}
 	});
+	// Views still being drawn are from the old reference: stop them, so
+	// the sheet is redrawn from this one when the user asks.
+	dropPending(
+		db,
+		SHEET_VIEWS.map((v) => item(db, s, 'sheet', v.key).id)
+	);
 	db.update(chapterCast)
 		.set({ pinnedVersionId: reference.id })
 		.where(and(eq(chapterCast.characterId, characterId), isNull(chapterCast.pinnedVersionId)))

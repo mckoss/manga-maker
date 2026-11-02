@@ -14,6 +14,7 @@ import {
 	requestPictures,
 	requestProfile,
 	requestSheet,
+	stopSheet,
 	ROLES,
 	saveDesign,
 	saveText,
@@ -155,6 +156,10 @@ export const actions: Actions = {
 		return run(() =>
 			requestSheet(db, ownerId, id, isSheetView(view) ? view : undefined, str(form, 'guidance'))
 		);
+	},
+	stopSheet: async ({ locals, params }) => {
+		const { db, ownerId, id } = ctx(locals, params);
+		return run(() => stopSheet(db, ownerId, id), 'Stopped drawing the sheet.');
 	},
 	// Version browsing (VersionNav). The name and role are copied to the
 	// character row whenever their current version changes.

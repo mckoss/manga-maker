@@ -38,6 +38,8 @@
 		}
 	});
 	let hasDesign = $derived(data.designs.some((d) => d.design.currentId !== null));
+	/** No design picture has been drawn yet: the first drawing is the only next step. */
+	let neverDrawn = $derived(data.designs.every((d) => d.picture.versions.length === 0));
 	let canWrite = $derived(
 		data.hasStyle && data.profile.some((p) => p.kind === 'appearance' && p.item.currentId !== null)
 	);
@@ -206,29 +208,42 @@
 		</details>
 	{/if}
 	<div class="row">
-		<form method="POST" action="?/update" use:enhance>
-			<input type="hidden" name="stage" value="designs" />
-			<button type="submit" disabled={!data.due.designs}
-				>Write out-of-date designs{data.due.designs ? ` (${data.due.designs})` : ''}</button
-			>
-		</form>
-		<form method="POST" action="?/update" use:enhance>
-			<input type="hidden" name="stage" value="pictures" />
-			<button type="submit" disabled={!data.due.pictures}
-				>Draw out-of-date pictures{data.due.pictures ? ` (${data.due.pictures})` : ''}</button
-			>
-		</form>
+		<!-- Only what can be done now: hidden, not disabled, when there is nothing to do. -->
+		{#if data.due.designs}
+			<form method="POST" action="?/update" use:enhance>
+				<input type="hidden" name="stage" value="designs" />
+				<button type="submit">Rewrite out-of-date designs ({data.due.designs})</button>
+			</form>
+		{/if}
+		{#if data.due.pictures}
+			<form method="POST" action="?/update" use:enhance>
+				<input type="hidden" name="stage" value="pictures" />
+				<button type="submit"
+					>{neverDrawn
+						? 'Draw the pictures'
+						: data.flow.pictures.missing
+							? 'Draw missing and out-of-date pictures'
+							: 'Redraw out-of-date pictures'} ({data.due.pictures})</button
+				>
+			</form>
+		{/if}
 		{#if (!data.due.designs && data.flow.designs.stale) || (!data.due.pictures && data.flow.pictures.stale)}
 			<span class="hint waiting">
 				Out-of-date steps wait for the ones before them: update or keep the
 				{!data.due.designs && data.flow.designs.stale ? 'profile' : 'designs'} first.
 			</span>
 		{/if}
-		<form method="POST" action="?/writeDesigns" use:enhance>
-			<button type="submit" class="secondary" disabled={!canWrite || data.designing}
-				>{hasDesign ? 'Write new designs' : 'Write designs'}</button
-			>
-		</form>
+		{#if !hasDesign}
+			<form method="POST" action="?/writeDesigns" use:enhance>
+				<button type="submit" disabled={!canWrite || data.designing}>Write designs</button>
+			</form>
+		{:else if !neverDrawn}
+			<form method="POST" action="?/writeDesigns" use:enhance>
+				<button type="submit" class="secondary" disabled={!canWrite || data.designing}
+					>Write new designs</button
+				>
+			</form>
+		{/if}
 	</div>
 	<div class="designs">
 		{#each data.designs as d (d.key)}
@@ -256,17 +271,26 @@
 		<p class="hint">Choose a reference picture first.</p>
 	{:else}
 		<div class="row">
-			<form method="POST" action="?/update" use:enhance>
-				<input type="hidden" name="stage" value="sheet" />
-				<button type="submit" disabled={!data.due.sheet}
-					>Redraw out-of-date views{data.due.sheet ? ` (${data.due.sheet})` : ''}</button
-				>
-			</form>
+			{#if data.due.sheet && data.sheet.some((s) => s.item.currentId)}
+				<form method="POST" action="?/update" use:enhance>
+					<input type="hidden" name="stage" value="sheet" />
+					<button type="submit">Redraw out-of-date views ({data.due.sheet})</button>
+				</form>
+			{/if}
 			{#if !data.due.sheet && data.flow.sheet.stale}
 				<span class="hint waiting">Choose an up-to-date reference picture first.</span>
 			{/if}
+			{#if data.sheet.some((s) => s.item.pending)}
+				<form method="POST" action="?/stopSheet" use:enhance>
+					<button type="submit" class="danger">Stop drawing</button>
+				</form>
+			{/if}
 			<form method="POST" action="?/sheet" use:enhance>
-				<button type="submit" class="secondary" disabled={!data.style}>
+				<button
+					type="submit"
+					class:secondary={data.sheet.some((s) => s.item.currentId)}
+					disabled={!data.style}
+				>
 					{data.sheet.every((s) => !s.item.currentId)
 						? 'Draw the character sheet'
 						: 'Redraw the whole sheet'}
@@ -333,8 +357,8 @@
 	}
 	.designs {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
-		gap: 1rem;
+		grid-template-columns: minmax(0, 1fr);
+		gap: var(--gutter);
 		margin-top: 0.75rem;
 	}
 	.sheet {

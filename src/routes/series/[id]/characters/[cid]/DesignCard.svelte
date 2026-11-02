@@ -59,75 +59,16 @@
 			update({ reset: false });
 </script>
 
-<figure class="design" class:stale={shownPicture?.outOfDate.length}>
-	{#if picture.pending}
-		<div class="placeholder"><span class="spinner"></span> Drawing…</div>
-	{:else if shownPicture?.assetHash && shownPicture.thumbHash}
-		<a href={asset(shownPicture.assetHash)} target="_blank" rel="noopener">
-			<img src={asset(shownPicture.thumbHash)} alt="Design option {slot}" loading="lazy" />
-		</a>
-	{:else if picture.error}
-		<div class="placeholder error">Failed: {picture.error}</div>
-	{:else}
-		<div class="placeholder">Not drawn yet</div>
-	{/if}
-
-	<div class="caption">
-		<strong>{title}</strong>
-		{#if shownPicture?.outOfDate.length}
-			<span class="badge warn">Picture out of date</span>
-		{:else if pictureStatus === 'upstream' && !picture.locked}
-			<span class="badge muted">Earlier step changed</span>
-		{/if}
-	</div>
-	{#if shownPicture?.outOfDate.length}
-		<p class="why">{outOfDateText(shownPicture.outOfDate)}</p>
-	{/if}
-
-	<div class="row actions">
-		{#if shownPicture?.assetHash}
-			{#if shownPicture.assetHash === referenceHash}
-				<span class="chosen"><strong>Reference</strong></span>
-			{:else}
-				<form method="POST" action="?/choose" use:enhance>
-					<input type="hidden" name="versionId" value={shownPicture.id} />
-					<button type="submit" class="secondary small" aria-label="Use {name} as reference"
-						>Use as reference</button
-					>
-				</form>
-			{/if}
-		{/if}
-		{#if !picture.locked && currentDesign}
-			<form method="POST" action="?/drawPictures" use:enhance>
-				<input type="hidden" name="which" value={slot} />
-				<button
-					type="submit"
-					class="secondary small"
-					disabled={!canDraw || picture.pending || design.pending}
-					aria-label="{currentPicture ? 'Redraw' : 'Draw'} {name}"
-					>{currentPicture ? 'Redraw' : 'Draw'}</button
-				>
-			</form>
-		{/if}
-	</div>
-	{#if currentPicture}
-		<VersionNav
-			item={picture}
-			shown={shownPicture}
-			label="Picture {slot}"
-			onview={(v) => (pictureViewId = v)}
-		/>
-	{/if}
-
-	<details class="words" open={!currentPicture}>
-		<summary>
+<article class="design" class:stale={shownPicture?.outOfDate.length}>
+	<div class="words">
+		<h3>
 			Design words
 			{#if design.pending}<span class="spinner"></span> writing…{/if}
 			{#if shownDesign?.outOfDate.length}<span class="badge warn">Out of date</span>
 			{:else if designStatus === 'upstream' && !design.locked}<span class="badge muted"
 					>Earlier step changed</span
 				>{/if}
-		</summary>
+		</h3>
 		{#if shownDesign?.outOfDate.length}
 			<p class="why">{outOfDateText(shownDesign.outOfDate)}</p>
 		{/if}
@@ -185,16 +126,104 @@
 				</form>
 			</details>
 		{/if}
-	</details>
-</figure>
+	</div>
+	<figure class="picture">
+		{#if picture.pending}
+			<div class="placeholder"><span class="spinner"></span> Drawing…</div>
+		{:else if shownPicture?.assetHash && shownPicture.thumbHash}
+			<a href={asset(shownPicture.assetHash)} target="_blank" rel="noopener">
+				<img src={asset(shownPicture.thumbHash)} alt="Design option {slot}" loading="lazy" />
+			</a>
+		{:else if picture.error}
+			<div class="placeholder error">Failed: {picture.error}</div>
+		{:else}
+			<div class="placeholder">Not drawn yet</div>
+		{/if}
+
+		<div class="caption">
+			<strong>{title}</strong>
+			{#if shownPicture?.outOfDate.length}
+				<span class="badge warn">Picture out of date</span>
+			{:else if pictureStatus === 'upstream' && !picture.locked}
+				<span class="badge muted">Earlier step changed</span>
+			{/if}
+		</div>
+		{#if shownPicture?.outOfDate.length}
+			<p class="why">{outOfDateText(shownPicture.outOfDate)}</p>
+		{/if}
+
+		<div class="row actions">
+			{#if shownPicture?.assetHash}
+				{#if shownPicture.assetHash === referenceHash}
+					<span class="chosen"><strong>Reference</strong></span>
+				{:else}
+					<form method="POST" action="?/choose" use:enhance>
+						<input type="hidden" name="versionId" value={shownPicture.id} />
+						<button type="submit" class="secondary small" aria-label="Use {name} as reference"
+							>Use as reference</button
+						>
+					</form>
+				{/if}
+			{/if}
+			{#if !picture.locked && currentDesign}
+				<form method="POST" action="?/drawPictures" use:enhance>
+					<input type="hidden" name="which" value={slot} />
+					<button
+						type="submit"
+						class="secondary small"
+						disabled={!canDraw || picture.pending || design.pending}
+						aria-label="{currentPicture ? 'Redraw' : 'Draw'} {name}"
+						>{currentPicture ? 'Redraw' : 'Draw'}</button
+					>
+				</form>
+			{/if}
+		</div>
+		{#if currentPicture}
+			<VersionNav
+				item={picture}
+				shown={shownPicture}
+				label="Picture {slot}"
+				onview={(v) => (pictureViewId = v)}
+			/>
+		{/if}
+	</figure>
+</article>
 
 <style>
+	/* One box per design: its words on the left, the picture drawn from them on the right. */
 	.design {
-		margin: 0;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 15rem;
+		gap: var(--space-5);
+		align-items: start;
 		min-width: 0;
+		padding: var(--space-4) var(--space-5);
+		background: var(--surface-panel);
+		border: var(--border-panel);
+	}
+	.words,
+	.picture {
 		display: grid;
 		gap: 0.35rem;
 		align-content: start;
+		min-width: 0;
+		margin: 0;
+	}
+	h3 {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+		margin: 0;
+		font: 700 13px/1.2 var(--font-body);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
+		color: var(--tone-60);
+	}
+	@media (max-width: 720px) {
+		.design {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 	img,
 	.placeholder {
