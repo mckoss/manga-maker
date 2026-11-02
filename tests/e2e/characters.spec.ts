@@ -42,19 +42,19 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	);
 
 	// Changing the notes marks the profile out of date; nothing is rewritten yet.
-	await page
-		.locator('#notes')
-		.getByLabel('Your notes', { exact: true })
-		.fill('a runaway boy with a staff');
-	await page.getByRole('button', { name: 'Save your notes' }).click();
+	// Leaving a changed box saves it.
+	const notes = page.locator('#notes').getByLabel('Your notes', { exact: true });
+	await notes.fill('a runaway boy with a staff');
+	await notes.blur();
 	await expect(flow.getByRole('listitem').filter({ hasText: 'Profile' })).toContainText(
 		'8 to update'
 	);
 	await expect(profile.getByText('Out of date').first()).toBeVisible();
 
 	// The user's own wording of a field is kept.
-	await profile.getByLabel('Outfit and props', { exact: true }).fill('a red traveling kimono');
-	await page.getByRole('button', { name: 'Save outfit and props' }).click();
+	const outfit = profile.getByLabel('Outfit and props', { exact: true });
+	await outfit.fill('a red traveling kimono');
+	await outfit.blur();
 	await expect(profile.getByText('Kept', { exact: true })).toBeVisible();
 
 	// Update everything: the profile, then the designs, then their pictures.

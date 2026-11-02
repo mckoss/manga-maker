@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { AutoSave } from '#lib/autosave.svelte.js';
 	import VersionNav from '#lib/components/VersionNav.svelte';
 	import type { ItemView } from '#lib/server/versions.js';
 
@@ -14,10 +15,18 @@
 	let current = $derived(item.versions.find((v) => v.id === item.currentId));
 	let shown = $derived(item.versions.find((v) => v.id === viewId) ?? current);
 	let value = $derived(shown?.text ?? role);
+	/** Choosing a role saves it. */
+	const save = new AutoSave();
 </script>
 
 <div class="card wide">
-	<form method="POST" action="?/saveText" class="row" use:enhance>
+	<form
+		method="POST"
+		action="?/saveText"
+		class="row"
+		use:enhance={save.enhance}
+		{@attach save.attach}
+	>
 		<input type="hidden" name="kind" value="role" />
 		<label>
 			Role
@@ -27,9 +36,8 @@
 				{/each}
 			</select>
 		</label>
-		{#if shown?.id === current?.id}
-			<button type="submit" class="secondary small">Save role</button>
-		{/if}
+		{#if save.status}<span class="hint" class:error={save.state === 'failed'}>{save.status}</span
+			>{/if}
 	</form>
 	{#if current}
 		<VersionNav {item} {shown} label="Role" lockable={false} onview={(v) => (viewId = v)} />
