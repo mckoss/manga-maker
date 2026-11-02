@@ -87,11 +87,7 @@
 		{#if editable}
 			<span class="save">
 				<button type="submit" class="secondary small">Save {label.toLowerCase()}</button>
-				{#if lockable}
-					<label class="check"
-						><input type="checkbox" name="keep" checked /> and keep it (the AI won't rewrite it)</label
-					>
-				{/if}
+				{#if lockable}<input type="hidden" name="keep" value="on" />{/if}
 			</span>
 		{/if}
 	</form>
@@ -150,10 +146,6 @@
 		flex-wrap: wrap;
 		align-items: center;
 		gap: 0.5rem;
-	}
-	.save .check {
-		font-size: 13px;
-		color: var(--tone-60);
 	}
 	.regen form {
 		margin-top: 0.4rem;

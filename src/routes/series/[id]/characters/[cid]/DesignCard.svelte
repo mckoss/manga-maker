@@ -152,7 +152,7 @@
 				{#if editable}
 					<span class="save">
 						<button type="submit" class="secondary small" aria-label="Save {name}">Save</button>
-						<label class="check"><input type="checkbox" name="keep" checked /> and keep it</label>
+						<input type="hidden" name="keep" value="on" />
 					</span>
 				{/if}
 			</form>

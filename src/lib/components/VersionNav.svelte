@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import Icon from '#lib/components/Icon.svelte';
 	import type { ItemView, VersionView } from '#lib/server/versions.js';
 
 	/**
@@ -55,6 +56,30 @@
 
 {#if shown}
 	<div class="nav" role="group" aria-label="{label} versions">
+		{#if lockable}
+			<form method="POST" action="?/lock" use:enhance class="padlock">
+				<input type="hidden" name="itemId" value={item.id} />
+				<input type="hidden" name="locked" value={item.locked ? '' : 'on'} />
+				<button
+					type="submit"
+					class:locked={item.locked}
+					aria-label={item.locked ? `Stop keeping ${label}` : `Keep ${label}`}
+					aria-pressed={item.locked}
+					title={item.locked
+						? 'Kept: the AI won’t replace this. Click to unlock.'
+						: 'Not kept: the AI may replace this. Click to lock it.'}
+				>
+					<Icon
+						name={item.locked ? 'lock' : 'lock-open'}
+						size={15}
+						stroke={item.locked ? 2.25 : 2}
+					/>
+					{#if item.locked}<span>Kept</span>{/if}
+				</button>
+			</form>
+		{:else if item.locked}
+			<span class="badge lock">Kept</span>
+		{/if}
 		<span class="pager">
 			{#if item.versions.length > 1}
 				<button
@@ -80,7 +105,6 @@
 			{#if isCurrent}<strong>in use</strong>{:else}<em>not in use</em>{/if}
 			· {ORIGIN[shown.origin] ?? shown.origin}
 		</span>
-		{#if item.locked}<span class="badge lock">Kept</span>{/if}
 	</div>
 	<div class="actions">
 		{#if !isCurrent}
@@ -90,15 +114,6 @@
 				{#if lockable && !item.locked}
 					<button type="submit" class="secondary small" name="lock" value="on">Use and keep</button>
 				{/if}
-			</form>
-		{/if}
-		{#if isCurrent && lockable}
-			<form method="POST" action="?/lock" use:enhance>
-				<input type="hidden" name="itemId" value={item.id} />
-				<input type="hidden" name="locked" value={item.locked ? '' : 'on'} />
-				<button type="submit" class="secondary small"
-					>{item.locked ? 'Stop keeping' : 'Keep'}</button
-				>
 			</form>
 		{/if}
 		<form method="POST" action="?/deleteVersion" use:enhance onsubmit={confirmLocked}>
@@ -133,6 +148,31 @@
 		display: flex;
 		gap: var(--space-3);
 		margin: 0;
+	}
+	.padlock {
+		display: contents;
+	}
+	.padlock button {
+		display: inline-flex;
+		align-items: center;
+		gap: 4px;
+		height: 24px;
+		padding: 0 4px;
+		border: none;
+		background: transparent;
+		color: var(--tone-60);
+		font: 700 11px/1 var(--font-body);
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+	.padlock button.locked {
+		color: var(--ink);
+	}
+	.padlock button:hover:not(:disabled) {
+		transform: none;
+		box-shadow: none;
+		background: var(--surface-sunk);
+		color: var(--ink);
 	}
 	.pager {
 		display: inline-flex;
