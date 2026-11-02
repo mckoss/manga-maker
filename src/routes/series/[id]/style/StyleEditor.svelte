@@ -53,8 +53,7 @@
 <ol class="pipeline" aria-label="How the style is made">
 	<li>Your description</li>
 	<li>Style prompt</li>
-	<li>Sample scenes</li>
-	<li>Sample pictures</li>
+	<li>Sample scenes and pictures</li>
 </ol>
 <p class="hint">
 	Each step is made from the ones before it. When an earlier step changes, what was made from it is
@@ -131,59 +130,58 @@
 </section>
 
 <section>
-	<h2>3. Sample scenes</h2>
+	<h2>3. Sample scenes and pictures</h2>
 	<p class="hint">
-		What each test picture shows, written by the AI to fit your description's setting and era.
+		Each test picture is drawn from its scene, written by the AI to fit your description's setting
+		and era, together with the style prompt. About 5–10 seconds per picture. A redraw keeps the
+		picture's seed unless you change it, so differences come from the words.
 	</p>
-	<form method="POST" action="?/writeScenes" class="stage" use:enhance>
+	<form method="POST" class="stage" use:enhance>
 		<label>
-			Guidance for the AI (optional)
+			Guidance for the scenes (optional)
 			<input name="guidance" placeholder="Set them all in winter…" />
 		</label>
 		<div class="row">
-			<button type="submit" name="which" value="outdated" disabled={!scenesToWrite}
-				>Write missing and out-of-date scenes{scenesToWrite ? ` (${scenesToWrite})` : ''}</button
-			>
-			<button type="submit" name="which" value="all" class="secondary"
+			{#if scenesToWrite}
+				<button type="submit" formaction="?/writeScenes" name="which" value="outdated"
+					>Write missing and out-of-date scenes ({scenesToWrite})</button
+				>
+			{/if}
+			<button type="submit" formaction="?/writeScenes" name="which" value="all" class="secondary"
 				>Rewrite all scenes not kept</button
 			>
 		</div>
 	</form>
-	{#each ed.scenes as scene (scene.key)}
-		<TextItemCard
-			item={scene.item}
-			label={scene.label}
-			kind="scene"
-			key={scene.key}
-			regenerate={{
-				action: 'writeScenes',
-				which: scene.key,
-				label: `Rewrite the ${scene.label.toLowerCase()} scene`,
-				placeholder: 'A fishing village instead of a farm…'
-			}}
-		/>
-	{/each}
-</section>
-
-<section>
-	<h2>4. Sample pictures</h2>
-	<p class="hint">
-		The style prompt and each scene, drawn by the image model. About 5–10 seconds per picture. A
-		redraw keeps the picture's seed unless you change it, so differences come from the prompt.
-	</p>
 	<form method="POST" action="?/drawPictures" class="row stage" use:enhance>
-		<button type="submit" name="which" value="outdated" disabled={!picturesToDraw}
-			>Draw missing and out-of-date pictures{picturesToDraw ? ` (${picturesToDraw})` : ''}</button
-		>
+		{#if picturesToDraw}
+			<button type="submit" name="which" value="outdated"
+				>Draw missing and out-of-date pictures ({picturesToDraw})</button
+			>
+		{/if}
 		<button type="submit" name="which" value="all" class="secondary"
 			>Redraw all pictures not kept</button
 		>
 	</form>
-	<div class="samples">
-		{#each ed.pictures as picture (picture.key)}
-			<PictureCard item={picture.item} label={picture.label} subject={picture.key} />
-		{/each}
-	</div>
+	{#each ed.scenes as scene, i (scene.key)}
+		{@const picture = ed.pictures[i]}
+		<div class="pair">
+			<TextItemCard
+				item={scene.item}
+				label="{scene.label} scene"
+				kind="scene"
+				key={scene.key}
+				regenerate={{
+					action: 'writeScenes',
+					which: scene.key,
+					label: `Rewrite the ${scene.label.toLowerCase()} scene`,
+					placeholder: 'A fishing village instead of a farm…'
+				}}
+			/>
+			<div class="samples">
+				<PictureCard item={picture.item} label={picture.label} subject={picture.key} />
+			</div>
+		</div>
+	{/each}
 </section>
 
 <section class="danger-zone">
@@ -229,8 +227,32 @@
 	.stage.row {
 		display: flex;
 	}
-	.samples {
-		grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+	/* A scene, and to its right the picture drawn from it. */
+	.pair {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 13rem;
+		gap: var(--gutter);
 		align-items: start;
+		margin-bottom: var(--gutter-wide);
+	}
+	.pair .samples {
+		display: block;
+		margin: 0;
+	}
+	/* One box per scene: the scene's own card frame gives way to it. */
+	.pair {
+		padding: var(--space-4) var(--space-5);
+		background: var(--surface-panel);
+		border: var(--border-panel);
+	}
+	.pair :global(.card) {
+		margin: 0;
+		padding: 0;
+		border: none;
+	}
+	@media (max-width: 720px) {
+		.pair {
+			grid-template-columns: minmax(0, 1fr);
+		}
 	}
 </style>
