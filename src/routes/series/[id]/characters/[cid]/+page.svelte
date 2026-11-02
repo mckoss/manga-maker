@@ -10,6 +10,7 @@
 	import FlowDiagram from './FlowDiagram.svelte';
 	import RoleCard from './RoleCard.svelte';
 	import SheetCell from './SheetCell.svelte';
+	import { batchLabel, pendingWork } from '#lib/components/batch.js';
 
 	let { data, form }: PageProps = $props();
 
@@ -40,6 +41,10 @@
 	let hasDesign = $derived(data.designs.some((d) => d.design.currentId !== null));
 	/** No design picture has been drawn yet: the first drawing is the only next step. */
 	let neverDrawn = $derived(data.designs.every((d) => d.picture.versions.length === 0));
+	/** Amendments for regenerating every unlocked artifact of a step. */
+	let profileAmendment = $state('');
+	let designsAmendment = $state('');
+	let sheetAmendment = $state('');
 	let canWrite = $derived(
 		data.hasStyle && data.profile.some((p) => p.kind === 'appearance' && p.item.currentId !== null)
 	);
@@ -67,9 +72,9 @@
 		class="badge warn">Out of date</span
 	>, and what comes after shows
 	<span class="badge muted">Earlier step changed</span>; nothing is regenerated until you ask. Every
-	text and picture keeps its versions: browse back with ‹ ›. Close the padlock on what you're happy
-	with and the AI won't touch it; what you write yourself is locked for you, and you can open it
-	again.
+	text and picture keeps its versions: browse back with ‹ › and select one. Lock what you're happy
+	with and it is never regenerated; what you write yourself is locked for you, and you can unlock
+	it.
 </p>
 
 {#if data.developing}
@@ -100,27 +105,28 @@
 				are what the designs are made from.
 			</p>
 			<div class="row">
-				<form method="POST" action="?/update" use:enhance>
-					<input type="hidden" name="stage" value="profile" />
-					<button type="submit" disabled={!data.due.profile}
-						>Rewrite out-of-date fields{data.due.profile ? ` (${data.due.profile})` : ''}</button
-					>
+				{#if data.due.profile}
+					<form method="POST" action="?/update" use:enhance>
+						<input type="hidden" name="stage" value="profile" />
+						<button type="submit"
+							>{batchLabel(pendingWork(data.profile.map((p) => p.item)), 'field')}</button
+						>
+					</form>
+				{/if}
+				<form method="POST" action="?/rewriteProfile" class="row amend-all" use:enhance>
+					<input
+						name="guidance"
+						bind:value={profileAmendment}
+						placeholder="Amend every field: make her older and warier"
+						aria-label="Amendment for every profile field"
+					/>
+					{#if profileAmendment.trim()}
+						<button type="submit" class="secondary" disabled={data.developing}
+							>Regenerate all unlocked fields</button
+						>
+					{/if}
 				</form>
 			</div>
-			<details class="card wide">
-				<summary>Revise every field not kept…</summary>
-				<form method="POST" action="?/rewriteProfile" use:enhance>
-					<label>
-						What should change?
-						<textarea
-							name="guidance"
-							rows="2"
-							placeholder="Make her older and warier; give him a more memorable silhouette…"
-						></textarea>
-					</label>
-					<button type="submit" disabled={data.developing}>Ask the AI to revise the profile</button>
-				</form>
-			</details>
 			{#each data.profile as field (field.kind)}
 				<TextItemCard
 					item={field.item}
@@ -135,7 +141,6 @@
 					regenerate={{
 						action: 'rewriteProfile',
 						which: field.kind,
-						label: 'Rewrite',
 						placeholder: 'Shorter; more sinister; …'
 					}}
 				/>
@@ -200,7 +205,7 @@
 				{#each data.traits.free as trait, i (i)}<li>{trait}</li>{/each}
 			</ul>
 			{#if data.traits.fixed.length}
-				<p class="hint">Kept the same in every design:</p>
+				<p class="hint">The same in every design:</p>
 				<ul>
 					{#each data.traits.fixed as trait, i (i)}<li>{trait}</li>{/each}
 				</ul>
@@ -212,18 +217,16 @@
 		{#if data.due.designs}
 			<form method="POST" action="?/update" use:enhance>
 				<input type="hidden" name="stage" value="designs" />
-				<button type="submit">Rewrite out-of-date designs ({data.due.designs})</button>
+				<button type="submit"
+					>{batchLabel(pendingWork(data.designs.map((d) => d.design)), 'design')}</button
+				>
 			</form>
 		{/if}
 		{#if data.due.pictures}
 			<form method="POST" action="?/update" use:enhance>
 				<input type="hidden" name="stage" value="pictures" />
 				<button type="submit"
-					>{neverDrawn
-						? 'Draw the pictures'
-						: data.flow.pictures.missing
-							? 'Draw missing and out-of-date pictures'
-							: 'Redraw out-of-date pictures'} ({data.due.pictures})</button
+					>{batchLabel(pendingWork(data.designs.map((d) => d.picture)), 'picture')}</button
 				>
 			</form>
 		{/if}
@@ -235,13 +238,21 @@
 		{/if}
 		{#if !hasDesign}
 			<form method="POST" action="?/writeDesigns" use:enhance>
-				<button type="submit" disabled={!canWrite || data.designing}>Write designs</button>
+				<button type="submit" disabled={!canWrite || data.designing}>Generate designs</button>
 			</form>
 		{:else if !neverDrawn}
-			<form method="POST" action="?/writeDesigns" use:enhance>
-				<button type="submit" class="secondary" disabled={!canWrite || data.designing}
-					>Write new designs</button
-				>
+			<form method="POST" action="?/writeDesigns" class="row amend-all" use:enhance>
+				<input
+					name="guidance"
+					bind:value={designsAmendment}
+					placeholder="Amend every design: older, in winter clothes"
+					aria-label="Amendment for every design"
+				/>
+				{#if designsAmendment.trim()}
+					<button type="submit" class="secondary" disabled={!canWrite || data.designing}
+						>Regenerate all unlocked designs</button
+					>
+				{/if}
 			</form>
 		{/if}
 	</div>
@@ -274,7 +285,9 @@
 			{#if data.due.sheet && data.sheet.some((s) => s.item.currentId)}
 				<form method="POST" action="?/update" use:enhance>
 					<input type="hidden" name="stage" value="sheet" />
-					<button type="submit">Redraw out-of-date views ({data.due.sheet})</button>
+					<button type="submit"
+						>{batchLabel(pendingWork(data.sheet.map((s) => s.item)), 'view')}</button
+					>
 				</form>
 			{/if}
 			{#if !data.due.sheet && data.flow.sheet.stale}
@@ -282,20 +295,28 @@
 			{/if}
 			{#if data.sheet.some((s) => s.item.pending)}
 				<form method="POST" action="?/stopSheet" use:enhance>
-					<button type="submit" class="danger">Stop drawing</button>
+					<button type="submit" class="danger">Stop generating</button>
 				</form>
 			{/if}
-			<form method="POST" action="?/sheet" use:enhance>
-				<button
-					type="submit"
-					class:secondary={data.sheet.some((s) => s.item.currentId)}
-					disabled={!data.style}
-				>
-					{data.sheet.every((s) => !s.item.currentId)
-						? 'Draw the character sheet'
-						: 'Redraw the whole sheet'}
-				</button>
-			</form>
+			{#if data.sheet.every((s) => !s.item.currentId)}
+				<form method="POST" action="?/sheet" use:enhance>
+					<button type="submit" disabled={!data.style}>Generate the character sheet</button>
+				</form>
+			{:else}
+				<form method="POST" action="?/sheet" class="row amend-all" use:enhance>
+					<input
+						name="guidance"
+						bind:value={sheetAmendment}
+						placeholder="Amend every view: holding the staff"
+						aria-label="Amendment for every view"
+					/>
+					{#if sheetAmendment.trim()}
+						<button type="submit" class="secondary" disabled={!data.style}
+							>Regenerate all unlocked views</button
+						>
+					{/if}
+				</form>
+			{/if}
 		</div>
 		<div class="sheet">
 			{#each data.sheet as cell (cell.view)}
@@ -361,26 +382,24 @@
 		gap: var(--gutter);
 		margin-top: 0.75rem;
 	}
+	.amend-all {
+		flex: 1 1 22rem;
+		margin: 0;
+	}
+	.amend-all input {
+		flex: 1 1 14rem;
+		min-width: 0;
+	}
 	.sheet {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
 		gap: 0.75rem;
 		margin-top: 0.75rem;
 	}
-	.traits summary,
-	details.card summary {
+	.traits summary {
 		cursor: pointer;
 		color: var(--muted);
 		font-size: 0.9rem;
-	}
-	details.card form {
-		display: grid;
-		gap: 0.5rem;
-		margin-top: 0.5rem;
-		justify-items: start;
-	}
-	details.card label {
-		width: 100%;
 	}
 	.row form {
 		margin: 0;

@@ -2,8 +2,8 @@
 	import { enhance } from '$app/forms';
 	import { AutoSave } from '#lib/autosave.svelte.js';
 	import VersionNav from '#lib/components/VersionNav.svelte';
+	import Regenerate from '#lib/components/Regenerate.svelte';
 	import type { ItemView } from '#lib/server/versions.js';
-	import { outOfDateText } from './labels.js';
 
 	/**
 	 * One versioned piece of text (the description, the style prompt, a
@@ -30,8 +30,8 @@
 		placeholder?: string;
 		/** Show the AI's notes on the version, credited to this role. */
 		notesBy?: string;
-		/** Ask the AI for a new version: the form action and the button wording. */
-		regenerate?: { action: string; which?: string; label: string; placeholder: string };
+		/** Ask the AI for a new version: the form action, which item, an example amendment. */
+		regenerate?: { action: string; which?: string; placeholder: string };
 		/** False for the user's own inputs, which the AI never rewrites. */
 		lockable?: boolean;
 		/** The form action that saves the user's wording. */
@@ -66,20 +66,17 @@
 		{:else if save.status}
 			<span class="hint saving" class:error={save.state === 'failed'}>{save.status}</span>
 		{/if}
-		{#if item.pending}
-			<span class="hint"><span class="spinner"></span> The AI is writing…</span>
-		{:else if !current}
-			<span class="badge muted">Not written yet</span>
-		{/if}
-		{#if shown?.outOfDate.length}<span class="badge warn">Out of date</span>
-		{:else if status === 'upstream' && !item.locked}<span class="badge muted"
-				>Earlier step changed</span
-			>{/if}
 	</div>
-	{#if shown?.outOfDate.length}
-		<p class="why">{outOfDateText(shown.outOfDate)}</p>
-	{/if}
-	{#if item.error && !item.pending}
+	{#if regenerate}
+		<Regenerate
+			{item}
+			{label}
+			action={regenerate.action}
+			fields={regenerate.which ? { which: regenerate.which } : {}}
+			placeholder={regenerate.placeholder}
+			upstream={status === 'upstream'}
+		/>
+	{:else if item.error && !item.pending}
 		<p class="error">The last attempt failed: {item.error}</p>
 	{/if}
 	{#if notesBy && shown?.notes}
@@ -99,19 +96,6 @@
 		{#if editable && lockable}<input type="hidden" name="keep" value="on" />{/if}
 	</form>
 	<VersionNav {item} {shown} {label} {lockable} onview={(v) => (viewId = v)} />
-	{#if regenerate && !item.locked}
-		<details class="regen">
-			<summary>{regenerate.label}…</summary>
-			<form method="POST" action="?/{regenerate.action}" use:enhance>
-				{#if regenerate.which}<input type="hidden" name="which" value={regenerate.which} />{/if}
-				<label>
-					Guidance for the AI (optional)
-					<textarea name="guidance" rows="2" placeholder={regenerate.placeholder}></textarea>
-				</label>
-				<button type="submit" disabled={item.pending}>{regenerate.label}</button>
-			</form>
-		</details>
-	{/if}
 </div>
 
 <style>
@@ -132,11 +116,6 @@
 	.saving {
 		font-size: 12px;
 	}
-	.why {
-		margin: 0;
-		font-size: 12px;
-		color: var(--warn);
-	}
 	.mentor {
 		margin: 0;
 	}
@@ -150,11 +129,5 @@
 	}
 	.item.stale textarea {
 		border: var(--border-stale);
-	}
-	.regen form {
-		margin-top: 0.4rem;
-	}
-	.regen label {
-		width: 100%;
 	}
 </style>

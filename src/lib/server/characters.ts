@@ -176,7 +176,8 @@ const uncapitalize = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
  */
 export function characterPrompt(
 	style: Pick<DrawingStyle, 'colorMode' | 'prompt'>,
-	look: { age: string; appearance: string; outfit: string }
+	look: { age: string; appearance: string; outfit: string },
+	guidance = ''
 ): string {
 	const what = uncapitalize(look.age.trim()) || 'one character';
 	const subject = [
@@ -184,6 +185,7 @@ export function characterPrompt(
 		sentence(look.appearance),
 		look.outfit.trim() ? sentence(`Wearing ${uncapitalize(look.outfit.trim())}`) : '',
 		'The whole body is shown, from the top of the head to the ground, against a plain white background.',
+		sentence(positiveOnly(guidance)),
 		TONE_REMINDER[style.colorMode]
 	]
 		.filter(Boolean)
@@ -739,7 +741,10 @@ export function saveDesign(
 
 /** Options for the jobs a request starts. */
 interface Start {
+	/** The user's amendment to the prompt, kept with the version it makes. */
 	guidance?: string;
+	/** A picture's seed; by default the current one, or a new one if that is up to date. */
+	seed?: number | null;
 	/** Stages to carry on with once this one finishes (see `updateOutdated`). */
 	cascade?: Stage[];
 }
@@ -806,10 +811,14 @@ function startPictures(db: Db, s: CharacterState, keys: DesignKey[], opts: Start
 				const view = views.get(`picture:${key}`);
 				const outOfDate = view?.versions.find((v) => v.id === view.currentId)?.outOfDate.length;
 				const seed =
-					current && !outOfDate
+					opts.seed ??
+					(current && !outOfDate
 						? randomSeed()
-						: (current?.seed ?? s.character.seed + DESIGN_KEYS.indexOf(key));
-				const version = startVersion(db, item(db, s, 'picture', key), { seed });
+						: (current?.seed ?? s.character.seed + DESIGN_KEYS.indexOf(key)));
+				const version = startVersion(db, item(db, s, 'picture', key), {
+					seed,
+					guidance: opts.guidance
+				});
 				const job = enqueue(db, s.series.ownerId, 'character.picture', {
 					characterId: s.character.id,
 					versionId: version.id,
@@ -828,7 +837,7 @@ function startSheet(db: Db, s: CharacterState, views: SheetView[], opts: Start =
 	if (!s.current.get('reference')?.assetHash) {
 		throw new CharacterError('Choose a reference picture first.');
 	}
-	const seed = randomSeed();
+	const seed = opts.seed ?? randomSeed();
 	return run(
 		() =>
 			views.map((view, i) => {
@@ -900,7 +909,7 @@ export function requestProfile(
 	const s = ownedState(db, ownerId, characterId);
 	const views = describeScope(db, characterScope(characterId), () => null, {});
 	const kinds = opts.kinds ?? PROFILE_KINDS.filter((k) => !views.get(k)?.locked);
-	if (!kinds.length) throw new CharacterError('Every field is kept.');
+	if (!kinds.length) throw new CharacterError('Every field is locked.');
 	return startProfile(db, s, kinds, { guidance: opts.guidance });
 }
 
@@ -917,7 +926,7 @@ export function requestDesigns(
 	const s = ownedState(db, ownerId, characterId);
 	const views = describeScope(db, characterScope(characterId), () => null, {});
 	const keys = opts.keys ?? DESIGN_KEYS.filter((k) => !views.get(`design:${k}`)?.locked);
-	if (!keys.length) throw new CharacterError('Every design is kept.');
+	if (!keys.length) throw new CharacterError('Every design is locked.');
 	return startDesigns(db, s, keys, { guidance: opts.guidance, cascade: ['pictures'] });
 }
 
@@ -926,7 +935,7 @@ export function requestPictures(
 	db: Db,
 	ownerId: number,
 	characterId: number,
-	opts: { keys?: DesignKey[] } = {}
+	opts: { keys?: DesignKey[]; guidance?: string; seed?: number | null } = {}
 ): number {
 	const s = ownedState(db, ownerId, characterId);
 	if (!s.ready) throw new CharacterError(NO_STYLE);
@@ -934,7 +943,7 @@ export function requestPictures(
 	const keys =
 		opts.keys ??
 		DESIGN_KEYS.filter((k) => s.current.get(`design:${k}`) && !views.get(`picture:${k}`)?.locked);
-	return startPictures(db, s, keys);
+	return startPictures(db, s, keys, { guidance: opts.guidance, seed: opts.seed });
 }
 
 /**
@@ -946,15 +955,17 @@ export function requestSheet(
 	ownerId: number,
 	characterId: number,
 	only?: SheetView,
-	guidance = ''
+	guidance = '',
+	seed: number | null = null
 ): number {
 	const s = ownedState(db, ownerId, characterId);
-	if (only) return startSheet(db, s, [only], { guidance });
+	if (only) return startSheet(db, s, [only], { guidance, seed });
 	const views = describeScope(db, characterScope(characterId), () => null, {});
 	return startSheet(
 		db,
 		s,
-		SHEET_VIEWS.map((v) => v.key).filter((v) => !views.get(`sheet:${v}`)?.locked)
+		SHEET_VIEWS.map((v) => v.key).filter((v) => !views.get(`sheet:${v}`)?.locked),
+		{ guidance }
 	);
 }
 
@@ -1290,11 +1301,11 @@ const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
 	if (!s.ready) throw new Error('The series’ style is not ready.');
 	const design = parseDesign(textOf(s, `design:${key}`));
 	if (!design) throw new Error('The design is missing.');
-	const prompt = characterPrompt(s.ready, {
-		age: textOf(s, 'age'),
-		appearance: design.appearance,
-		outfit: design.outfit
-	});
+	const prompt = characterPrompt(
+		s.ready,
+		{ age: textOf(s, 'age'), appearance: design.appearance, outfit: design.outfit },
+		version.guidance
+	);
 	const inputs = pictureInputs(s, key);
 	const result = await ai.image.generate(
 		{ model: s.ready.model, prompt, seed: version.seed ?? 0, ...CANDIDATE_SIZE },

@@ -3,7 +3,7 @@
 	import { AutoSave } from '#lib/autosave.svelte.js';
 	import { resolve } from '$app/paths';
 	import VersionNav from '#lib/components/VersionNav.svelte';
-	import { outOfDateText } from '#lib/components/labels.js';
+	import Regenerate from '#lib/components/Regenerate.svelte';
 	import type { ItemView } from '#lib/server/versions.js';
 
 	/**
@@ -60,18 +60,16 @@
 
 <article class="design" class:stale={shownPicture?.outOfDate.length}>
 	<div class="words">
-		<h3>
-			Design words
-			{#if design.pending}<span class="spinner"></span> writing…{/if}
-			{#if shownDesign?.outOfDate.length}<span class="badge warn">Out of date</span>
-			{:else if designStatus === 'upstream' && !design.locked}<span class="badge muted"
-					>Earlier step changed</span
-				>{/if}
-		</h3>
-		{#if shownDesign?.outOfDate.length}
-			<p class="why">{outOfDateText(shownDesign.outOfDate)}</p>
-		{/if}
-		{#if design.error && !design.pending}<p class="error">Failed: {design.error}</p>{/if}
+		<h3>Design words</h3>
+		<Regenerate
+			item={design}
+			label={name}
+			action="writeDesigns"
+			fields={{ which: slot }}
+			placeholder="older, heavier, a long coat"
+			canGenerate={canWrite}
+			upstream={designStatus === 'upstream'}
+		/>
 		{#if words || editable}
 			<form method="POST" action="?/saveDesign" use:enhance={save.enhance} {@attach save.attach}>
 				<input type="hidden" name="key" value={slot} />
@@ -105,54 +103,30 @@
 				onview={(v) => (designViewId = v)}
 			/>
 		{/if}
-		{#if !design.locked}
-			<details class="regen">
-				<summary>{currentDesign ? 'Rewrite' : 'Write'} with the AI…</summary>
-				<form method="POST" action="?/writeDesigns" use:enhance>
-					<input type="hidden" name="which" value={slot} />
-					<label>
-						Guidance (optional)
-						<textarea name="guidance" rows="2" placeholder="Older, heavier, a long coat…"
-						></textarea>
-					</label>
-					<button
-						type="submit"
-						class="secondary small"
-						disabled={!canWrite || design.pending}
-						aria-label="{currentDesign ? 'Rewrite' : 'Write'} {name}"
-						>{currentDesign ? 'Rewrite' : 'Write'}</button
-					>
-				</form>
-			</details>
-		{/if}
 	</div>
 	<figure class="picture">
 		{#if picture.pending}
-			<div class="placeholder"><span class="spinner"></span> Drawing…</div>
+			<div class="placeholder"><span class="spinner"></span> Generating…</div>
 		{:else if shownPicture?.assetHash && shownPicture.thumbHash}
 			<a href={asset(shownPicture.assetHash)} target="_blank" rel="noopener">
 				<img src={asset(shownPicture.thumbHash)} alt="Design option {slot}" loading="lazy" />
 			</a>
-		{:else if picture.error}
-			<div class="placeholder error">Failed: {picture.error}</div>
 		{:else}
-			<div class="placeholder">Not drawn yet</div>
+			<div class="placeholder">Not created</div>
 		{/if}
 
-		<div class="caption">
-			<strong>{title}</strong>
-			{#if shownPicture?.outOfDate.length}
-				<span class="badge warn">Picture out of date</span>
-			{:else if pictureStatus === 'upstream' && !picture.locked}
-				<span class="badge muted">Earlier step changed</span>
-			{/if}
-		</div>
-		{#if shownPicture?.outOfDate.length}
-			<p class="why">
-				{outOfDateText(shownPicture.outOfDate)}{#if !picture.locked && !picture.pending}<span
-						class="next">Redraw it to bring it up to date.</span
-					>{/if}
-			</p>
+		<strong class="caption">{title}</strong>
+		{#if currentDesign}
+			<Regenerate
+				item={picture}
+				label="picture of {name}"
+				action="drawPictures"
+				fields={{ which: slot }}
+				seed
+				placeholder="holding the staff"
+				canGenerate={canDraw && !design.pending}
+				upstream={pictureStatus === 'upstream'}
+			/>
 		{/if}
 
 		<div class="row actions">
@@ -168,18 +142,6 @@
 					</form>
 				{/if}
 			{/if}
-			{#if !picture.locked && currentDesign}
-				<form method="POST" action="?/drawPictures" use:enhance>
-					<input type="hidden" name="which" value={slot} />
-					<button
-						type="submit"
-						class="secondary small"
-						disabled={!canDraw || picture.pending || design.pending}
-						aria-label="{currentPicture ? 'Redraw' : 'Draw'} {name}"
-						>{currentPicture ? 'Redraw' : 'Draw'}</button
-					>
-				</form>
-			{/if}
 		</div>
 		{#if currentPicture}
 			<VersionNav
@@ -193,7 +155,8 @@
 </article>
 
 <style>
-	/* One box per design: its words on the left, the picture drawn from them on the right. */
+	/* One box per design: its words on the left,
+	the picture drawn from them on the right. */
 	.design {
 		display: grid;
 		grid-template-columns: minmax(0, 1fr) 15rem;
@@ -257,24 +220,11 @@
 		align-items: center;
 		font-size: 0.9rem;
 	}
-	.next {
-		margin-left: 0.25em;
-	}
-	.why {
-		margin: 0;
-		font-size: 0.8rem;
-		color: var(--warn);
-	}
 	.actions {
 		gap: 0.4rem;
 	}
 	.actions form {
 		margin: 0;
-	}
-	summary {
-		cursor: pointer;
-		font-size: 0.85rem;
-		color: var(--muted);
 	}
 	.words form {
 		display: grid;
@@ -293,8 +243,5 @@
 	textarea[readonly],
 	input[readonly] {
 		color: var(--muted);
-	}
-	.regen {
-		margin-top: 0.35rem;
 	}
 </style>

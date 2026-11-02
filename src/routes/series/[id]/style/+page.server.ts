@@ -219,7 +219,7 @@ export const actions: Actions = {
 				const { db, access: a } = access(locals, params, form);
 				useVersion(db, a, num(form, 'versionId'), { lock });
 			},
-			lock ? 'Using that version, and keeping it.' : 'Using that version.'
+			lock ? 'Selected that version, and locked it.' : 'Selected that version.'
 		);
 	},
 	lock: async ({ request, locals, params }) => {
@@ -259,10 +259,13 @@ export const actions: Actions = {
 				guidance: str(form, 'guidance'),
 				seed
 			});
-		}, 'Drawing the logo.');
+		}, 'Generating the logo.');
 	},
 	stopLogo: async ({ locals, params }) =>
-		run(() => stopLogo(getDb(), locals.user!.id, Number(params.id)), 'Stopped drawing the logo.'),
+		run(
+			() => stopLogo(getDb(), locals.user!.id, Number(params.id)),
+			'Stopped generating the logo.'
+		),
 	startOver: async ({ locals, params }) =>
 		run(() => removeStyle(getDb(), locals.user!.id, Number(params.id)), 'Style removed.')
 };

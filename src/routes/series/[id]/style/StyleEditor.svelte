@@ -6,6 +6,7 @@
 	import type { PageData } from './$types';
 	import PictureCard from './PictureCard.svelte';
 	import QuestionsCard from './QuestionsCard.svelte';
+	import { batchLabel, pendingWork } from '#lib/components/batch.js';
 	import LogoCard from './LogoCard.svelte';
 	import TextItemCard from '#lib/components/TextItemCard.svelte';
 
@@ -34,13 +35,11 @@
 	});
 
 	const id = $derived(page.params.id ?? '');
-	const outdated = (items: { item: Editor['prompt'] }[]) =>
-		items.filter(({ item }) => {
-			const current = item.versions.find((v) => v.id === item.currentId);
-			return !item.locked && (!current || current.outOfDate.length > 0);
-		}).length;
-	let scenesToWrite = $derived(outdated(ed.scenes));
-	let picturesToDraw = $derived(outdated(ed.pictures));
+	let scenesLabel = $derived(batchLabel(pendingWork(ed.scenes.map((s) => s.item)), 'scene'));
+	let picturesLabel = $derived(batchLabel(pendingWork(ed.pictures.map((p) => p.item)), 'picture'));
+	/** An amendment for every scene, or every picture: offers regenerating all unlocked. */
+	let scenesAmendment = $state('');
+	let picturesAmendment = $state('');
 </script>
 
 <div class="title-row">
@@ -63,8 +62,9 @@
 </ol>
 <p class="hint">
 	Each step is made from the ones before it. When an earlier step changes, what was made from it is
-	marked <span class="badge warn">Out of date</span>. Every version is kept: browse back with ‹ ›,
-	go back to one, and close the padlock on what you're happy with so it is never regenerated.
+	marked <span class="badge warn">Out of date</span>, with a Regenerate button. Every version is
+	saved: browse back with ‹ ›, select one, and lock what you're happy with so it is never
+	regenerated.
 	{#if ed.ready}
 		The rest of the series is drawn with the current prompt.
 		<a href={resolve('/series/[id]/characters', { id })}>Next: characters →</a>
@@ -129,7 +129,6 @@
 		notesBy="AI art director"
 		regenerate={{
 			action: 'writePrompt',
-			label: 'Rewrite the prompt',
 			placeholder: 'Thicker outlines, fewer screentones, softer faces…'
 		}}
 	/>
@@ -139,34 +138,42 @@
 	<h2>3. Sample scenes and pictures</h2>
 	<p class="hint">
 		Each test picture is drawn from its scene, written by the AI to fit your description's setting
-		and era, together with the style prompt. About 5–10 seconds per picture. A redraw keeps the
+		and era, together with the style prompt. About 5–10 seconds per picture. Regenerating keeps the
 		picture's seed unless you change it, so differences come from the words.
 	</p>
-	<form method="POST" class="stage" use:enhance>
-		<label>
-			Guidance for the scenes (optional)
-			<input name="guidance" placeholder="Set them all in winter…" />
-		</label>
-		<div class="row">
-			{#if scenesToWrite}
-				<button type="submit" formaction="?/writeScenes" name="which" value="outdated"
-					>Write missing and out-of-date scenes ({scenesToWrite})</button
-				>
-			{/if}
-			<button type="submit" formaction="?/writeScenes" name="which" value="all" class="secondary"
-				>Rewrite all scenes not kept</button
-			>
-		</div>
-	</form>
-	<form method="POST" action="?/drawPictures" class="row stage" use:enhance>
-		{#if picturesToDraw}
-			<button type="submit" name="which" value="outdated"
-				>Draw missing and out-of-date pictures ({picturesToDraw})</button
+	<form method="POST" action="?/writeScenes" class="row stage" use:enhance>
+		<input
+			name="guidance"
+			class="amend"
+			bind:value={scenesAmendment}
+			placeholder="Amend every scene: set them all in winter"
+			aria-label="Amendment for every scene"
+		/>
+		{#if scenesLabel}
+			<button type="submit" name="which" value="outdated">{scenesLabel}</button>
+		{/if}
+		{#if scenesAmendment.trim()}
+			<button type="submit" name="which" value="all" class="secondary"
+				>Regenerate all unlocked scenes</button
 			>
 		{/if}
-		<button type="submit" name="which" value="all" class="secondary"
-			>Redraw all pictures not kept</button
-		>
+	</form>
+	<form method="POST" action="?/drawPictures" class="row stage" use:enhance>
+		<input
+			name="guidance"
+			class="amend"
+			bind:value={picturesAmendment}
+			placeholder="Amend every picture: lower camera angle"
+			aria-label="Amendment for every picture"
+		/>
+		{#if picturesLabel}
+			<button type="submit" name="which" value="outdated">{picturesLabel}</button>
+		{/if}
+		{#if picturesAmendment.trim()}
+			<button type="submit" name="which" value="all" class="secondary"
+				>Regenerate all unlocked pictures</button
+			>
+		{/if}
 	</form>
 	{#each ed.scenes as scene, i (scene.key)}
 		{@const picture = ed.pictures[i]}
@@ -179,7 +186,6 @@
 				regenerate={{
 					action: 'writeScenes',
 					which: scene.key,
-					label: `Rewrite the ${scene.label.toLowerCase()} scene`,
 					placeholder: 'A fishing village instead of a farm…'
 				}}
 			/>
@@ -238,6 +244,10 @@
 	.stage.row {
 		display: flex;
 	}
+	.amend {
+		flex: 1 1 18rem;
+		min-width: 0;
+	}
 	/* A scene, and to its right the picture drawn from it. */
 	.pair {
 		display: grid;
@@ -248,6 +258,7 @@
 	}
 	.pair .samples {
 		display: block;
+		min-width: 0;
 		margin: 0;
 	}
 	/* One box per scene: the scene's own card frame gives way to it. */

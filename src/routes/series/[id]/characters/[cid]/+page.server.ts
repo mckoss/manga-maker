@@ -48,6 +48,16 @@ export const load: PageServerLoad = ({ params, locals }) => {
 };
 
 /** Run a command; expected errors become a form failure shown on the page. */
+/** The seed the user typed, if any; a bad one is an error. */
+function seedOf(form: FormData): number | null {
+	const raw = String(form.get('seed') ?? '').trim();
+	if (!raw) return null;
+	const seed = Number(raw);
+	if (!Number.isSafeInteger(seed) || seed < 0)
+		throw new CharacterError('The seed must be a whole number.');
+	return seed;
+}
+
 async function run(fn: () => unknown, message?: string | ((result: unknown) => string)) {
 	try {
 		const result = fn();
@@ -138,7 +148,11 @@ export const actions: Actions = {
 		const key = str(form, 'which');
 		const { db, ownerId, id } = ctx(locals, params);
 		return run(() =>
-			requestPictures(db, ownerId, id, { keys: isDesignKey(key) ? [key] : undefined })
+			requestPictures(db, ownerId, id, {
+				keys: isDesignKey(key) ? [key] : undefined,
+				guidance: str(form, 'guidance'),
+				seed: seedOf(form)
+			})
 		);
 	},
 	choose: async ({ request, locals, params }) => {
@@ -154,12 +168,19 @@ export const actions: Actions = {
 		const view = str(form, 'view');
 		const { db, ownerId, id } = ctx(locals, params);
 		return run(() =>
-			requestSheet(db, ownerId, id, isSheetView(view) ? view : undefined, str(form, 'guidance'))
+			requestSheet(
+				db,
+				ownerId,
+				id,
+				isSheetView(view) ? view : undefined,
+				str(form, 'guidance'),
+				seedOf(form)
+			)
 		);
 	},
 	stopSheet: async ({ locals, params }) => {
 		const { db, ownerId, id } = ctx(locals, params);
-		return run(() => stopSheet(db, ownerId, id), 'Stopped drawing the sheet.');
+		return run(() => stopSheet(db, ownerId, id), 'Stopped generating the sheet.');
 	},
 	// Version browsing (VersionNav). The name and role are copied to the
 	// character row whenever their current version changes.

@@ -50,7 +50,7 @@
 		<h1>Make your own manga, one step at a time.</h1>
 		<p>
 			Describe the look and the people in your story. An AI art director and story editor work
-			through it with you: the style, the characters, then each chapter. Every version is kept, and
+			through it with you: the style, the characters, then each chapter. Every version is saved, and
 			you choose what stays.
 		</p>
 		<div class="cta">{@render children()}</div>
@@ -86,8 +86,8 @@
 		<span class="kicker accent">Nothing is lost</span>
 		<h2>Lock what you love. Step back through the rest.</h2>
 		<p>
-			Every picture and every line of text keeps its history. Close the padlock on what you’re happy
-			with and the AI won’t touch it. Change your mind later and go back to any earlier version.
+			Every picture and every line of text keeps its history. Lock what you’re happy with and the AI
+			won’t touch it. Change your mind later and go back to any earlier version.
 		</p>
 	</div>
 	<div>

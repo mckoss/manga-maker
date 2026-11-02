@@ -166,7 +166,7 @@ describe('style pipeline', () => {
 		expect(current(ext)?.outOfDate).toEqual(['the keep-out list']);
 		expect(after.scenes.filter((s) => s.item.versions.length === 2)).toHaveLength(4);
 		expect(requestScenes(db, owner, id, 'outdated')).toBe(0);
-		expect(() => requestScenes(db, owner, id, 'exterior')).toThrow(/is kept/);
+		expect(() => requestScenes(db, owner, id, 'exterior')).toThrow(/is locked/);
 
 		// Four pictures now show older scenes; the exterior's is up to date.
 		expect(requestPictures(db, owner, id, 'outdated')).toBe(4);

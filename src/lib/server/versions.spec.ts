@@ -72,6 +72,6 @@ describe('versioned items', () => {
 		);
 		const after = deleteVersion(db, access(), only.id);
 		expect(after).toMatchObject({ currentVersionId: null, locked: false });
-		expect(() => setLocked(db, access(), item.id, true)).toThrow(/nothing to keep/);
+		expect(() => setLocked(db, access(), item.id, true)).toThrow(/nothing to lock/);
 	});
 });
