@@ -33,6 +33,7 @@ import {
 	saveText,
 	SHEET_VIEWS,
 	sheetPrompt,
+	stopSheet,
 	syncCharacter,
 	updateOutdated
 } from './characters';
@@ -361,6 +362,53 @@ describe('characters', () => {
 		detail = getCharacter(db, owner, id);
 		expect(detail.sheet.every((s) => s.status === 'ok')).toBe(true);
 		expect(image.edits.filter((e) => e.prompt.includes('over one shoulder'))).toHaveLength(2);
+	});
+
+	it('follows the reference in use, even when the profile has moved on', async () => {
+		const id = await drawn();
+		const [first, second] = getCharacter(db, owner, id).designs.map((d) => current(d.picture)!);
+		chooseReference(db, owner, id, first.id);
+		requestSheet(db, owner, id);
+		await worker.drain();
+
+		// The profile changes after the reference was chosen: the reference
+		// is out of date, but the sheet still matches it and stays as it is.
+		saveText(db, owner, id, 'appearance', 'taller, with a scar over one eye', false);
+		let detail = getCharacter(db, owner, id);
+		expect(detail.reference.status).not.toBe('ok');
+		expect(detail.sheet.every((s) => s.status === 'ok')).toBe(true);
+		expect(detail.due.sheet).toBe(0);
+
+		// Views drawn from an older reference can be redrawn from this one.
+		chooseReference(db, owner, id, second.id);
+		detail = getCharacter(db, owner, id);
+		expect(detail.sheet.every((s) => s.status === 'outdated')).toBe(true);
+		expect(detail.due.sheet).toBe(SHEET_VIEWS.length);
+	});
+
+	it('stops drawing the sheet when asked, and when the reference changes', async () => {
+		const id = await drawn();
+		const [first, second] = getCharacter(db, owner, id).designs.map((d) => current(d.picture)!);
+		chooseReference(db, owner, id, first.id);
+		const before = image.edits.length;
+
+		requestSheet(db, owner, id);
+		expect(getCharacter(db, owner, id).sheet.every((s) => s.item.pending)).toBe(true);
+		stopSheet(db, owner, id);
+		await worker.drain();
+		let sheet = getCharacter(db, owner, id).sheet;
+		expect(sheet.some((s) => s.item.pending)).toBe(false);
+		expect(sheet.every((s) => s.status === 'missing')).toBe(true);
+		expect(image.edits).toHaveLength(before);
+
+		// Choosing another reference stops views still being drawn from the old one.
+		requestSheet(db, owner, id);
+		chooseReference(db, owner, id, second.id);
+		await worker.drain();
+		sheet = getCharacter(db, owner, id).sheet;
+		expect(sheet.some((s) => s.item.pending)).toBe(false);
+		expect(image.edits).toHaveLength(before);
+		expect(getCharacter(db, owner, id).due.sheet).toBe(SHEET_VIEWS.length);
 	});
 
 	it('rewrites the whole profile with feedback, except what is kept', async () => {

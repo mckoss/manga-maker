@@ -265,6 +265,11 @@
 			{#if !data.due.sheet && data.flow.sheet.stale}
 				<span class="hint waiting">Choose an up-to-date reference picture first.</span>
 			{/if}
+			{#if data.sheet.some((s) => s.item.pending)}
+				<form method="POST" action="?/stopSheet" use:enhance>
+					<button type="submit" class="danger">Stop drawing</button>
+				</form>
+			{/if}
 			<form method="POST" action="?/sheet" use:enhance>
 				<button type="submit" class="secondary" disabled={!data.style}>
 					{data.sheet.every((s) => !s.item.currentId)
