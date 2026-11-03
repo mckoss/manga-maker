@@ -143,6 +143,20 @@ Build progress against [PLAN.md](PLAN.md). Questions for the maintainer go in
       never dress an animal unless the notes say so
 - [x] Existing characters imported (migration 0010)
 
+## Refactor: one pipeline engine
+
+See "Pipeline registry and engine" in [PLAN.md](PLAN.md). Each step changes
+no behaviour.
+
+- [x] Typed scope and slot ids; the pipeline registry and generic engine,
+      with unit tests; characters on `entityPipeline` (v0.23.1)
+- [ ] Locations on `entityPipeline`
+- [ ] Plots on the engine (clarify flow stays a shared helper)
+- [ ] Styles on the engine, `cascades: false` throughout
+- [ ] Prompt registry with prompt ids and hashes on versions
+- [ ] Run records (messages, replies, retries; image workflow, model, seed)
+- [ ] Fake text replies routed by prompt id
+
 ## Next
 
 - [ ] Locations (milestone 3)
