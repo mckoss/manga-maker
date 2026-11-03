@@ -158,7 +158,11 @@ no behaviour.
 - [x] Styles on the engine, `cascades: false` throughout: nothing redraws
       by itself, and a picture whose prompt or scene changed shows "Earlier
       step changed"; the clarify flow stays in each domain (v0.24.0)
-- [ ] Prompt registry with prompt ids and hashes on versions
+- [x] Prompt registry (`src/lib/server/prompts/`): every text step's
+      system prompt by namespaced id, sent through `askJson`; versions
+      record `prompt_id` and `prompt_hash` (migration 0015) and show a soft
+      "made with an earlier version of the prompt" note that never counts
+      as out of date; texts unchanged byte for byte (v0.25.0)
 - [ ] Run records (messages, replies, retries; image workflow, model, seed)
 - [ ] Fake text replies routed by prompt id
 

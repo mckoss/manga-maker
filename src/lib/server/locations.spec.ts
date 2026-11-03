@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { like } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
-import { items } from './db/schema';
+import { items, versions } from './db/schema';
+import { prompt } from './prompts';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
 import { enqueue, Worker } from './jobs';
 import { createUser } from './auth/users';
@@ -78,6 +80,36 @@ async function drawn() {
 }
 
 describe('locations', () => {
+	it('records the prompt of each AI text version, and none on pictures', async () => {
+		await drawn();
+		const made = db
+			.select({
+				scope: items.scope,
+				kind: items.kind,
+				id: versions.promptId,
+				hash: versions.promptHash
+			})
+			.from(versions)
+			.innerJoin(items, eq(versions.itemId, items.id))
+			.where(eq(versions.origin, 'ai'))
+			.all()
+			.filter((r) => r.scope.startsWith('location:'));
+		const expected = (kind: string) =>
+			kind === 'picture' || kind === 'sheet'
+				? ''
+				: kind === 'design'
+					? 'location.designs'
+					: 'location.develop';
+		expect(made.some((r) => r.kind === 'design')).toBe(true);
+		expect(made.some((r) => r.kind === 'picture')).toBe(true);
+		for (const r of made) {
+			expect([r.kind, r.id]).toEqual([r.kind, expected(r.kind)]);
+			expect(r.hash).toBe(r.id ? prompt(r.id as 'location.develop').hash : '');
+		}
+		expect(text.promptIds).toContain('location.develop');
+		expect(text.promptIds).toContain('location.designs');
+	});
+
 	it('develops a profile from the notes, then writes designs', async () => {
 		const id = createLocation(db, owner, seriesId, brief);
 		await worker.drain();

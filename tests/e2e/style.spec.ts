@@ -68,6 +68,9 @@ test('marks later steps out of date and regenerates only those', async ({ signed
 	await page.getByRole('button', { name: 'Regenerate 5 out-of-date pictures' }).click();
 	await expect(picture(page, 'Action').getByText('2 of 2')).toBeVisible();
 	await expect(page.getByText('Made before the style prompt changed.')).toHaveCount(0);
+	// Made with today's prompts: no note about an earlier version of the prompt.
+	await expect(prompt.getByText('generated', { exact: false }).first()).toBeVisible();
+	await expect(page.getByText('made with an earlier version of the prompt')).toHaveCount(0);
 });
 
 test('shows pictures made from a changed step as Earlier step changed, and redraws nothing', async ({

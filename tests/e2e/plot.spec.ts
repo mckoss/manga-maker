@@ -30,6 +30,8 @@ test('plots a chapter: structure, story elements, beats with their cast, and a r
 	const beats = page.locator('#beats article');
 	await expect(beats).toHaveCount(5);
 	await expect(page.locator('#review').getByText('The climax relies on luck')).toBeVisible();
+	// Made with today's prompts: no note about an earlier version of the prompt.
+	await expect(page.getByText('made with an earlier version of the prompt')).toHaveCount(0);
 
 	// The first beat names someone new: they join the series and the chapter's cast.
 	await expect(beats.first().getByLabel('Old Watchman')).toBeChecked();

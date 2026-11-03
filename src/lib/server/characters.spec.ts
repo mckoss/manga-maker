@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { like } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
-import { items } from './db/schema';
+import { items, versions } from './db/schema';
+import { prompt } from './prompts';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
 import type { ChatMessage } from './ai/text';
 import { Worker } from './jobs';
@@ -138,6 +140,36 @@ async function drawn() {
 }
 
 describe('characters', () => {
+	it('records the prompt of each AI text version, and none on pictures', async () => {
+		await drawn();
+		const made = db
+			.select({
+				scope: items.scope,
+				kind: items.kind,
+				id: versions.promptId,
+				hash: versions.promptHash
+			})
+			.from(versions)
+			.innerJoin(items, eq(versions.itemId, items.id))
+			.where(eq(versions.origin, 'ai'))
+			.all()
+			.filter((r) => r.scope.startsWith('character:'));
+		const expected = (kind: string) =>
+			kind === 'picture' || kind === 'sheet'
+				? ''
+				: kind === 'design'
+					? 'character.designs'
+					: 'character.develop';
+		expect(made.some((r) => r.kind === 'design')).toBe(true);
+		expect(made.some((r) => r.kind === 'picture')).toBe(true);
+		for (const r of made) {
+			expect([r.kind, r.id]).toEqual([r.kind, expected(r.kind)]);
+			expect(r.hash).toBe(r.id ? prompt(r.id as 'character.develop').hash : '');
+		}
+		expect(text.promptIds).toContain('character.develop');
+		expect(text.promptIds).toContain('character.designs');
+	});
+
 	it('develops a profile from the notes, then writes designs, each its own versioned item', async () => {
 		const goro = createCharacter(db, owner, seriesId, {
 			...brief,

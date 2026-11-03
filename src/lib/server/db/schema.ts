@@ -128,6 +128,14 @@ export const versions = sqliteTable('versions', {
 	 * for the user's own versions and those made before this was recorded.
 	 */
 	model: text('model').notNull().default(''),
+	/**
+	 * The registered system prompt an AI text step made it with (its id,
+	 * "character.develop", and the short hash of its text then), to say when
+	 * the prompt has changed since. Empty for the user's own versions,
+	 * pictures, and versions made before this was recorded.
+	 */
+	promptId: text('prompt_id').notNull().default(''),
+	promptHash: text('prompt_hash').notNull().default(''),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 

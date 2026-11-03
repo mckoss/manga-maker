@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import type { z } from 'zod';
 import type { EditRequest, ImageModel, ImageRequest, ImageResult } from './image';
-import type { ChatMessage, TextModel } from './text';
+import type { ChatMessage, TextModel, TextRequestOptions } from './text';
 
 /**
  * Stand-ins for tests, CI and machines without the AI services
@@ -47,11 +47,19 @@ export class FakeImageModel implements ImageModel {
 export class FakeTextModel implements TextModel {
 	readonly name = 'fake-text';
 	calls: ChatMessage[][] = [];
+	/** The prompt id of each call, alongside `calls` (undefined if none was given). */
+	promptIds: (string | undefined)[] = [];
 
 	constructor(private respond: (messages: ChatMessage[]) => unknown) {}
 
-	async json<T>(messages: ChatMessage[], schema: z.ZodType<T>): Promise<T> {
+	async json<T>(
+		messages: ChatMessage[],
+		schema: z.ZodType<T>,
+		_signal?: AbortSignal,
+		options: TextRequestOptions = {}
+	): Promise<T> {
 		this.calls.push(messages);
+		this.promptIds.push(options.promptId);
 		return schema.parse(this.respond(messages));
 	}
 }

@@ -2,6 +2,7 @@ import { and, asc, eq, inArray, ne } from 'drizzle-orm';
 import type { Db } from './db';
 import { items, jobs, versions, type Item, type Version, type VersionOrigin } from './db/schema';
 import { cancelJobs } from './jobs';
+import { promptChanged } from './prompts';
 
 /**
  * Versioned items: anything the user and the AI make in rounds (a prompt, a
@@ -85,6 +86,9 @@ export interface VersionContent {
 	guidance?: string;
 	/** The exact model that made it (see MODEL_LABELS). */
 	model?: string;
+	/** The registered prompt an AI text step made it with, and that prompt's hash (see `askJson`). */
+	promptId?: string;
+	promptHash?: string;
 }
 
 /**
@@ -331,6 +335,11 @@ export interface VersionView {
 	createdAt: Date;
 	/** Labels of the inputs that changed since this version was made, or [UNRECORDED]. */
 	outOfDate: string[];
+	/**
+	 * It was made with an earlier text of its prompt. Informational only: it
+	 * never makes it out of date, and is false when no prompt was recorded.
+	 */
+	promptChanged: boolean;
 }
 
 export interface ItemView {
@@ -402,7 +411,8 @@ export function describeScope(
 						? []
 						: Object.keys(v.inputs).length
 							? changedInputs(v.inputs, now).map((name) => labels[name] ?? name)
-							: [UNRECORDED]
+							: [UNRECORDED],
+					promptChanged: promptChanged(v.promptId, v.promptHash)
 				})),
 			pending: unfinished.some((r) => r.jobStatus === 'queued' || r.jobStatus === 'running'),
 			error: failed ? (failed.jobError ?? 'It failed.') : null

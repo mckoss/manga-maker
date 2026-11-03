@@ -34,6 +34,7 @@ import {
 	versions
 } from './db/schema';
 import { enqueue, type JobHandler } from './jobs';
+import { askJson } from './prompts/ask';
 import { touchSeries } from './series';
 import { drawingStyle, type DrawingStyle } from './styles';
 import { characterScope, createCharacter, isRole, ROLES, type Role } from './characters';
@@ -57,7 +58,6 @@ import {
 	ELEMENTS,
 	isElementKind,
 	isStructure,
-	STRUCTURE_KEYS,
 	STRUCTURES,
 	type ElementKind,
 	type StructureKey
@@ -760,9 +760,7 @@ export function skipQuestions(db: Db, ownerId: number, seriesId: number, chapter
 }
 
 // ---------------------------------------------------------------------------
-// The AI's instructions
-
-const EDITOR = `You are an experienced manga story editor helping a writer, who may be new to comics, plot one chapter of their manga.`;
+// What the AI is asked (its system prompts are in prompts/plot.ts)
 
 /** What the AI knows about the series and chapter, for every request. */
 export function storyContext(s: PlotState): string[] {
@@ -807,45 +805,13 @@ export function storyContext(s: PlotState): string[] {
 	return lines;
 }
 
-const structureList = () =>
-	STRUCTURE_KEYS.map(
-		(k) =>
-			`- "${k}": ${STRUCTURES[k].label}. ${STRUCTURES[k].bestFor} Beats: ${STRUCTURES[k].beats
-				.map((b) => b.label)
-				.join(', ')}.`
-	).join('\n');
-
-const STRUCTURE_SYSTEM = () => `${EDITOR}
-
-Choose the story structure for one chapter that best fits the writer's idea. The structures:
-${structureList()}
-
-A chapter in an ongoing series usually ends on a hook, unless the idea is self-contained; a quiet or slice-of-life idea without a strong opponent suits kishōtenketsu.
-
-Reply with only a JSON object with the keys "structure" (one of the quoted keys) and "reason" (one or two sentences to the writer on why it fits their idea).`;
-
 const structureReply = z.object({ structure: z.string(), reason: z.string().default('') });
 
 export function structureMessages(s: PlotState, guidance: string) {
 	const lines = storyContext(s);
 	if (guidance) lines.push(`The writer's feedback: ${guidance}`);
-	return [
-		{ role: 'system' as const, content: STRUCTURE_SYSTEM() },
-		{ role: 'user' as const, content: lines.join('\n') }
-	];
+	return [{ role: 'user' as const, content: lines.join('\n') }];
 }
-
-const NEW_CHARACTERS = `- "newCharacters": the characters the beats name who are not yet in the series, as a list of objects with the keys "name" (the name the beats use), "role" ("protagonist", "antagonist", "supporting" or "minor") and "brief" (one or two sentences: who they are and their part in this chapter). Give each a name the story will keep. Empty when the series' characters are enough.`;
-
-const ELEMENTS_SYSTEM = `${EDITOR}
-
-Write the chapter's story elements: the parts of a proper story arc, so the conflict, its escalation, the climax, the resolution and the ending are clear before the outline is written. Build on the writer's idea and keep everything they wrote; invent what they left open, in keeping with the series, the cast's personalities and wants, and the chosen structure. Be specific to these characters: name them, and name what they do.
-
-Reply with only a JSON object with these keys, each one to three sentences:
-${ELEMENTS.map((e) => `- "${e.kind}": ${e.label}. ${e.hint}`).join('\n')}
-- "notes": two or three sentences to the writer on the choices you made and what they might change.
-
-For kishōtenketsu the conflict may be gentle or absent: say so in "conflict" and make the twist carry the chapter. For a serial chapter, "resolution" may be partial and "ending" is the cliffhanger.`;
 
 const elementFields = Object.fromEntries(
 	ELEMENT_KINDS.map((k) => [k, z.string().default('')])
@@ -879,22 +845,8 @@ export function elementsMessages(s: PlotState, rewrite: ElementKind[], guidance:
 	lines.push(
 		guidance ? `The writer's feedback: ${guidance}` : `Write these elements: ${rewrite.join(', ')}.`
 	);
-	return [
-		{ role: 'system' as const, content: ELEMENTS_SYSTEM },
-		{ role: 'user' as const, content: lines.join('\n') }
-	];
+	return [{ role: 'user' as const, content: lines.join('\n') }];
 }
-
-const BEATS_SYSTEM = `${EDITOR}
-
-Write the chapter's beat outline: one entry for each beat of the chosen structure, in order. Each beat says, in two to four sentences, what happens: who is there, where (use the series' places by name when one fits), what they do and what changes. Follow the story elements, so the conflict escalates beat by beat and the climax, resolution and ending land where the elements say. Show, don't summarize: concrete actions and moments a manga page can draw.
-
-Give each beat a number of pages so the total is the chapter's length. Pace it like manga: the climax gets room, and a page turn is a good place for a reveal.
-
-Reply with only a JSON object with these keys:
-- "beats": a list of objects with the keys "key", "text", "pages" and "characters" (the names of everyone who appears in the beat, exactly as the series or "newCharacters" names them), using exactly the beat keys asked for.
-- "notes": one or two sentences to the writer about the pacing.
-${NEW_CHARACTERS}`;
 
 const beatsReply = z.object({
 	beats: z
@@ -942,24 +894,8 @@ export function beatsMessages(s: PlotState, rewrite: string[], guidance: string)
 		lines.push(`The writer's feedback: ${guidance}`);
 	}
 	lines.push(`Beats to write: ${rewrite.join(', ')}`);
-	return [
-		{ role: 'system' as const, content: BEATS_SYSTEM },
-		{ role: 'user' as const, content: lines.join('\n') }
-	];
+	return [{ role: 'user' as const, content: lines.join('\n') }];
 }
-
-const REVIEW_SYSTEM = `${EDITOR}
-
-Review the outline as a story editor would, honestly and specifically. Check:
-- Does the protagonist want something clear, and does it cost them to get it?
-- Does the conflict escalate, beat by beat, rather than repeat?
-- Is the climax the protagonist's own choice or action, not luck or rescue?
-- Is every setup paid off, and is every payoff set up?
-- Does each character act as their personality and wants say?
-- Does the pacing fit the pages: is the climax given room, is anything rushed or padded?
-- Does the ending land: a clear dénouement, or a hook that makes the reader turn to the next chapter?
-
-Reply with only a JSON object with the key "notes": a list of two to six objects with the keys "kind" ("strength" or "issue") and "text" (one or two sentences, naming the beat and suggesting a fix for an issue). Lead with the most important issue.`;
 
 const reviewNote = z.object({ kind: z.enum(['strength', 'issue']), text: z.string() });
 const reviewReply = z.object({ notes: z.array(reviewNote).default([]) });
@@ -978,29 +914,10 @@ export function reviewMessages(s: PlotState, guidance: string) {
 		})
 	);
 	if (guidance) lines.push(`The writer asks you to look at: ${guidance}`);
-	return [
-		{ role: 'system' as const, content: REVIEW_SYSTEM },
-		{ role: 'user' as const, content: lines.join('\n') }
-	];
+	return [{ role: 'user' as const, content: lines.join('\n') }];
 }
 
-const PLOT_QUESTIONS_SYSTEM = `${EDITOR}
-
-Before the plot is written, ask the writer about the gaps in their chapter idea that would most change the story: what the protagonist wants and why now, what stands in the way, what is at stake, how it should end (resolved, or on a cliffhanger), the tone, or a key moment they already picture. Ask only about what their logline and notes leave open, at most four questions; a detailed idea needs one or two, or none.
-
-Each question is short and specific to their chapter ("Does Jovi defy his mother openly, or sneak out?"), with two to four short suggested answers that fit the series and cast.
-
-Reply with only a JSON object with the key "questions": a list of objects with the keys "question" and "suggestions" (a list of strings). The list may be empty.`;
-
 const questionsReply = z.object({ questions: z.array(question).max(6).default([]) });
-
-const PLOT_FOLD_SYSTEM = `${EDITOR}
-
-The writer wrote notes on their chapter and answered some of your questions. Rewrite their chapter notes so they include the answers.
-
-Keep everything they wrote and keep their voice; add each answer where it fits. Write plain prose, with no headings or lists. Do not add anything they did not say.
-
-Reply with only a JSON object with the key "notes".`;
 
 const foldReply = z.object({ notes: z.string().min(1) });
 
@@ -1086,11 +1003,20 @@ export function syncCast(db: Db, chapterId: number): void {
 /** The structure; nothing at all (no cascade) if its version was dropped meanwhile. */
 const structureRun: StepRun<PlotState> = async ({ ai, signal, state: s, slots, guidance }) => {
 	if (!slots.some((x) => x.version?.status === 'pending')) return null;
-	const reply = await ai.text.json(structureMessages(s, guidance), structureReply, signal);
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'plot.structure',
+		structureMessages(s, guidance),
+		structureReply,
+		signal
+	);
 	const key = reply.structure.trim();
 	if (!isStructure(key)) throw new Error(`The AI chose an unknown structure: ${key}`);
 	return new Map([
-		[slotKey(structureSlot), { text: key, notes: reply.reason.trim(), model: ai.text.name }]
+		[
+			slotKey(structureSlot),
+			{ text: key, notes: reply.reason.trim(), model: ai.text.name, ...prompt }
+		]
 	]);
 };
 
@@ -1098,12 +1024,18 @@ const structureRun: StepRun<PlotState> = async ({ ai, signal, state: s, slots, g
 const elementsRun: StepRun<PlotState> = async ({ ai, signal, state: s, slots, guidance }) => {
 	if (!structureOf(s)) return null;
 	const rewrite = ELEMENT_KINDS.filter((k) => slots.some((x) => x.ref.kind === k));
-	const reply = await ai.text.json(elementsMessages(s, rewrite, guidance), elementsReply, signal);
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'plot.elements',
+		elementsMessages(s, rewrite, guidance),
+		elementsReply,
+		signal
+	);
 	const notes = reply.notes.trim();
 	return new Map(
 		rewrite.map((kind) => {
 			const text = reply[kind]?.trim();
-			return [slotKeyOf(kind), text ? { text, notes, model: ai.text.name } : null];
+			return [slotKeyOf(kind), text ? { text, notes, model: ai.text.name, ...prompt } : null];
 		})
 	);
 };
@@ -1121,7 +1053,13 @@ const beatsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, g
 		if (version && !rewrite.includes(ref.key ?? '')) abandonVersion(db, version.id);
 	}
 	if (!rewrite.length) return null;
-	const reply = await ai.text.json(beatsMessages(s, rewrite, guidance), beatsReply, signal);
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'plot.beats',
+		beatsMessages(s, rewrite, guidance),
+		beatsReply,
+		signal
+	);
 	const written = rewrite.map((key) => reply.beats.find((x) => x.key.trim() === key));
 	const { ids, created } = resolveCharacters(
 		db,
@@ -1148,7 +1086,8 @@ const beatsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, g
 								characters: ids[i]!
 							}),
 							notes,
-							model: ai.text.name
+							model: ai.text.name,
+							...prompt
 						}
 					: null
 			];
@@ -1158,9 +1097,18 @@ const beatsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, g
 
 const reviewRun: StepRun<PlotState> = async ({ ai, signal, state: s, guidance }) => {
 	if (!structureOf(s)) return null;
-	const reply = await ai.text.json(reviewMessages(s, guidance), reviewReply, signal);
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'plot.review',
+		reviewMessages(s, guidance),
+		reviewReply,
+		signal
+	);
 	return new Map([
-		[slotKey(reviewSlot), { text: JSON.stringify(reply.notes.slice(0, 8)), model: ai.text.name }]
+		[
+			slotKey(reviewSlot),
+			{ text: JSON.stringify(reply.notes.slice(0, 8)), model: ai.text.name, ...prompt }
+		]
 	]);
 };
 
@@ -1170,11 +1118,10 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const { chapterId, versionId } = job.payload as { chapterId: number; versionId: number };
 	const s = loadState(db, chapterId);
 	if (!s) return;
-	const reply = await ai.text.json(
-		[
-			{ role: 'system', content: PLOT_QUESTIONS_SYSTEM },
-			{ role: 'user', content: storyContext(s).join('\n') }
-		],
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'plot.questions',
+		[{ role: 'user', content: storyContext(s).join('\n') }],
 		questionsReply,
 		signal
 	);
@@ -1188,7 +1135,8 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	finishVersion(db, versionId, {
 		text: JSON.stringify(list),
 		inputs: ideaInputs(s),
-		model: ai.text.name
+		model: ai.text.name,
+		...prompt
 	});
 };
 
@@ -1197,9 +1145,10 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const s = loadState(db, chapterId);
 	const version = db.select().from(versions).where(eq(versions.id, versionId)).get();
 	if (!s || version?.status !== 'pending') return;
-	const reply = await ai.text.json(
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'plot.fold',
 		[
-			{ role: 'system', content: PLOT_FOLD_SYSTEM },
 			{
 				role: 'user',
 				content: [
@@ -1216,7 +1165,8 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	finishVersion(db, versionId, {
 		text: reply.notes.trim(),
 		notes: 'Your answers, folded into your notes.',
-		model: ai.text.name
+		model: ai.text.name,
+		...prompt
 	});
 	// The questions were about the old notes; they are now answered.
 	const now = loadState(db, chapterId)!;
