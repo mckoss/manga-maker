@@ -149,8 +149,10 @@ describe('series logo', () => {
 		await worker.drain();
 		const edit = image.edits.at(-1)!;
 		expect(edit.images).toHaveLength(2);
-		expect(await sharp(edit.images[1]).metadata()).toMatchObject({ width: 1024, height: 1024 });
-		expect(edit.prompt).toContain('the place in the second picture');
+		// The place is image 1, which the edit builds on; the character is image 2.
+		for (const img of edit.images)
+			expect(await sharp(img).metadata()).toMatchObject({ width: 1024, height: 1024 });
+		expect(edit.prompt).toContain('the character from image 2 in front of the place in image 1');
 	});
 
 	it('stops drawing on request, and goes with the series', async () => {
