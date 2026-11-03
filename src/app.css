@@ -492,9 +492,6 @@ section.draft {
 	padding: 0.5rem;
 	overflow: hidden;
 }
-.samples figure.stale img {
-	opacity: 0.45;
-}
 .samples figcaption {
 	font: 700 13px var(--font-body);
 	color: var(--ink);

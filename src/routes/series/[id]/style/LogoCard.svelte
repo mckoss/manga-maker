@@ -20,7 +20,7 @@
 	const asset = (hash: string) => resolve('/assets/[hash]', { hash });
 </script>
 
-<div class="logo" class:stale={shown?.outOfDate.length}>
+<div class="logo" class:unselected={shown && shown.id !== item.currentId}>
 	<div class="from">
 		<p class="hint">
 			A branding mark for the whole series, shown wherever the series appears: in the sidebar, on
@@ -155,7 +155,7 @@
 		color: var(--tone-60);
 		background: var(--tone-dots), var(--surface-panel);
 	}
-	.stale img {
+	.unselected img {
 		opacity: 0.45;
 	}
 	@media (max-width: 720px) {

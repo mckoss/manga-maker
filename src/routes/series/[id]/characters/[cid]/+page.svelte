@@ -156,7 +156,7 @@
 					class="reference"
 					src={asset(refShown.thumbHash)}
 					alt="{name} reference"
-					class:faded={refShown.outOfDate.length}
+					class:faded={refShown.id !== refItem.currentId}
 				/>
 			</a>
 			{#if refLabel}<p class="variant">{refLabel}</p>{/if}
