@@ -18,6 +18,13 @@ import {
 	updateOutdated
 } from './characters';
 import { getLogo, logoJobHandlers, logoPrompt, requestLogo, stopLogo } from './logos';
+import {
+	chooseReference as choosePlace,
+	createLocation,
+	getLocation,
+	locationJobHandlers,
+	updateOutdated as updatePlace
+} from './locations';
 import { itemsIn } from './versions';
 
 let db: Db;
@@ -34,7 +41,7 @@ beforeEach(async () => {
 	worker = new Worker(
 		db,
 		{ image, text: new FakeTextModel(fakeReply) },
-		{ ...styleJobHandlers, ...characterJobHandlers, ...logoJobHandlers }
+		{ ...styleJobHandlers, ...characterJobHandlers, ...logoJobHandlers, ...locationJobHandlers }
 	);
 	owner = (await createUser(db, 'kenji', 'a long enough password')).id;
 	seriesId = createSeries(db, owner, {
@@ -117,6 +124,33 @@ describe('series logo', () => {
 		expect(stale.versions.find((v) => v.id === stale.currentId)!.outOfDate).toEqual([
 			'the protagonist’s reference picture'
 		]);
+	});
+
+	it('sets the protagonist in front of the default location, once it has a reference', async () => {
+		await protagonist();
+		requestLogo(db, owner, seriesId);
+		await worker.drain();
+		const inn = createLocation(db, owner, seriesId, { name: 'Inn', brief: 'a mountain inn' });
+		await worker.drain();
+		// No reference yet: the logo stays up to date, drawn from the logline.
+		const before = getLogo(db, owner, seriesId);
+		expect(before.place).toBeNull();
+		expect(before.item.versions.at(-1)!.outOfDate).toEqual([]);
+
+		updatePlace(db, owner, inn);
+		await worker.drain();
+		const picture = getLocation(db, owner, inn).designs[0].picture;
+		choosePlace(db, owner, inn, picture.currentId!);
+		const after = getLogo(db, owner, seriesId);
+		expect(after.place).toEqual({ id: inn, name: 'Inn' });
+		expect(after.item.versions.at(-1)!.outOfDate).toEqual(['the default location']);
+
+		requestLogo(db, owner, seriesId);
+		await worker.drain();
+		const edit = image.edits.at(-1)!;
+		expect(edit.images).toHaveLength(2);
+		expect(await sharp(edit.images[1]).metadata()).toMatchObject({ width: 1024, height: 1024 });
+		expect(edit.prompt).toContain('the place in the second picture');
 	});
 
 	it('stops drawing on request, and goes with the series', async () => {

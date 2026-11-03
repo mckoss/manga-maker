@@ -25,7 +25,7 @@
 		<p class="hint">
 			A branding mark for the whole series, shown wherever the series appears: in the sidebar, on
 			the cover in your library. It is drawn from your protagonist’s reference picture, in front of
-			a typical scene from the story.
+			your default location (or, until it has a reference picture, a typical scene from the story).
 		</p>
 		<dl>
 			<dt>Protagonist</dt>
@@ -41,19 +41,31 @@
 					<span class="missing">None with a reference picture yet</span>
 				{/if}
 			</dd>
-			<dt>Scene</dt>
+			<dt>Background</dt>
 			<dd>
-				{#if logline}{logline}{:else}<span class="missing"
+				{#if logo.place}
+					<a
+						href={resolve('/series/[id]/locations/[lid]', {
+							id: seriesId,
+							lid: String(logo.place.id)
+						})}>{logo.place.name || 'Your default location'}</a
+					>
+				{:else if logline}{logline}{:else}<span class="missing"
 						>No logline: the style’s description stands in</span
 					>{/if}
 			</dd>
 		</dl>
+		{#if !logo.place}
+			<p class="hint">
+				For a background from your story, choose a reference picture for your default location on
+				the <a href={resolve('/series/[id]/locations', { id: seriesId })}>Locations</a> step.
+			</p>
+		{/if}
 		{#if !logo.protagonist}
 			<p class="notice">
 				First, add a protagonist on the <a
 					href={resolve('/series/[id]/characters', { id: seriesId })}>Characters</a
-				> step and choose their reference picture. Once the Locations step is built, the logo will use
-				your default location as its background.
+				> step and choose their reference picture.
 			</p>
 		{/if}
 		{#if item.pending}
