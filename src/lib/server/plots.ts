@@ -7,6 +7,14 @@
  * structure → elements → beats → review: each step is made from the ones
  * before it and goes out of date when they change. The user can edit any
  * part (which locks it) and the AI regenerates only what is unlocked.
+ *
+ * The four steps run on the pipeline engine (`./pipeline`). What is plot's
+ * own: the beats' fan-out follows the chosen structure (and the review is
+ * made from those beats), so beats of a structure chosen earlier stay in the
+ * scope as orphans; each step waits on gates beyond its upstream (the idea,
+ * the structure, every element written, every beat made); only a kept item
+ * anchors what follows; and the questions → answers → notes "clarify" flow
+ * runs beside the engine (see "Clarify").
  */
 import { createHash } from 'node:crypto';
 import { and, asc, eq, lt } from 'drizzle-orm';
@@ -36,9 +44,7 @@ import {
 	attachJob,
 	abandonVersion,
 	currentVersions,
-	describeScope,
 	dropPending,
-	ensureItem,
 	finishVersion,
 	startVersion,
 	VersionError,
@@ -56,7 +62,9 @@ import {
 	type ElementKind,
 	type StructureKey
 } from '#lib/structures.js';
-import { scopeOf } from './pipeline/ids';
+import { parseSlot, scopeOf, slot, slotKey, slotKeyOf, type SlotRef } from './pipeline/ids';
+import { engine } from './pipeline/engine';
+import type { PipelineState, Stage, Status, StepRun } from './pipeline/registry';
 
 export class PlotError extends Error {}
 
@@ -68,6 +76,12 @@ export type PlotStage = (typeof PLOT_STAGES)[number];
 export function isPlotStage(value: string): value is PlotStage {
 	return (PLOT_STAGES as readonly string[]).includes(value);
 }
+
+/**
+ * Where an item stands: missing, pending, outdated (made from inputs that
+ * changed), upstream (an earlier step it is made from will change), or ok.
+ */
+export type { Status };
 
 /**
  * A beat of the outline: what happens, how many pages it gets, and who is in
@@ -124,16 +138,6 @@ function parseQuestions(text: string | undefined): Question[] {
 	}
 }
 
-/** What each kind of input is called when saying why something is out of date. */
-const INPUT_LABELS: Record<string, string> = {
-	logline: 'the logline',
-	notes: 'your notes',
-	structure: 'the structure',
-	elements: 'the story elements',
-	pages: 'the page target',
-	beats: 'the beats'
-};
-
 // ---------------------------------------------------------------------------
 // State
 
@@ -146,11 +150,10 @@ interface CastMember {
 	look: string;
 }
 
-interface PlotState {
+interface PlotState extends PipelineState {
 	chapter: Chapter;
 	series: Series;
 	style: DrawingStyle | undefined;
-	current: Map<string, Version>;
 	/** Every character in the series. */
 	people: CastMember[];
 	/** The chapter's cast: everyone in its beats (ids). */
@@ -215,11 +218,15 @@ function stateOf(db: Db, chapter: Chapter, owner: Series): PlotState {
 				.join(' ');
 			return { name: chapterName(c), logline: c.logline, ending };
 		});
+	const scope = chapterScope(chapter.id);
 	return {
+		id: chapter.id,
+		ownerId: owner.ownerId,
+		scope,
 		chapter,
 		series: owner,
 		style: owner.styleId ? drawingStyle(db, owner.styleId) : undefined,
-		current: currentVersions(db, chapterScope(chapter.id)),
+		current: currentVersions(db, scope),
 		people,
 		cast,
 		places,
@@ -227,7 +234,7 @@ function stateOf(db: Db, chapter: Chapter, owner: Series): PlotState {
 	};
 }
 
-const textOf = (s: PlotState, slot: string) => s.current.get(slot)?.text ?? '';
+const textOf = (s: PlotState, key: string) => s.current.get(key)?.text ?? '';
 
 /** The structure in use: the one chosen, or none yet. */
 function structureOf(s: PlotState): StructureKey | null {
@@ -239,6 +246,17 @@ const beatKeys = (s: PlotState) => {
 	const key = structureOf(s);
 	return key ? STRUCTURES[key].beats.map((b) => b.key) : [];
 };
+
+/** A beat's slot ("beat:hook"), and its slot key. */
+const beatSlot = (key: string) => slot('beat', key);
+const beatSlotKey = (key: string) => slotKeyOf('beat', key);
+
+/** The beats of the structure in use; beats of one chosen earlier are left out. */
+const beatSlots = (s: PlotState) => beatKeys(s).map(beatSlot);
+
+const structureSlot = slot('structure');
+const elementSlots = ELEMENT_KINDS.map((k) => slot(k));
+const reviewSlot = slot('review');
 
 /** A short fingerprint of long text, so inputs stay small. */
 const digest = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 16);
@@ -268,81 +286,90 @@ const reviewInputs = (s: PlotState) => ({
 	elements: elementsDigest(s),
 	beats: digest(
 		beatKeys(s)
-			.map((k) => `${k}=${textOf(s, `beat:${k}`)}`)
+			.map((k) => `${k}=${textOf(s, beatSlotKey(k))}`)
 			.join('\n')
 	)
 });
 
-function inputsFor(s: PlotState, item: Pick<Item, 'kind' | 'key'>) {
-	if (item.kind === 'questions') return ideaInputs(s);
-	if (item.kind === 'structure') return structureInputs(s);
-	if (isElementKind(item.kind)) return elementInputs(s);
-	if (item.kind === 'beat') return beatInputs(s);
-	if (item.kind === 'review') return reviewInputs(s);
-	return null;
-}
+// ---------------------------------------------------------------------------
+// The pipeline
 
-/** The items each item is made from, as slot keys. */
-function upstreamOf(s: PlotState, slot: string): string[] {
-	const [kind] = slot.split(':');
-	if (isElementKind(kind)) return ['structure'];
-	if (kind === 'beat') return ['structure', ...ELEMENT_KINDS];
-	if (kind === 'review') return beatKeys(s).map((k) => `beat:${k}`);
-	return [];
-}
+/** The gates each step waits on, beyond the steps it is made from being settled. */
+const hasIdea = (s: PlotState) => Boolean(s.chapter.logline || textOf(s, 'notes'));
+const canWriteElements = (s: PlotState) => hasIdea(s) && Boolean(structureOf(s));
+const canWriteBeats = (s: PlotState) =>
+	canWriteElements(s) && ELEMENT_KINDS.every((k) => textOf(s, k));
+const canReview = (s: PlotState) =>
+	canWriteBeats(s) && beatSlots(s).every((ref) => s.current.get(slotKey(ref)));
+
+const structureStage: Stage<PlotState> = {
+	id: 'structure',
+	kind: 'ai-text',
+	kinds: ['structure'],
+	slots: () => [structureSlot],
+	inputs: structureInputs,
+	upstream: () => [],
+	ready: hasIdea,
+	job: { kind: 'plot.structure', per: 'stage', run: (ctx) => structureRun(ctx) }
+};
+
+const elementsStage: Stage<PlotState> = {
+	id: 'elements',
+	kind: 'ai-text',
+	kinds: ELEMENT_KINDS,
+	slots: () => elementSlots,
+	inputs: elementInputs,
+	upstream: () => [structureSlot],
+	ready: canWriteElements,
+	job: { kind: 'plot.elements', per: 'stage', run: (ctx) => elementsRun(ctx) }
+};
 
 /**
- * Where an item stands: missing, pending, outdated (made from inputs that
- * changed), upstream (an earlier step it is made from will change), or ok.
+ * The beats of the structure in use. A job's payload names them by slot
+ * ("beat:hook"), as it always has; the cast follows the beats once written.
  */
-export type Status = 'missing' | 'pending' | 'outdated' | 'upstream' | 'ok';
+const beatsStage: Stage<PlotState> = {
+	id: 'beats',
+	kind: 'ai-text',
+	kinds: ['beat'],
+	slots: beatSlots,
+	inputs: beatInputs,
+	upstream: () => [structureSlot, ...elementSlots],
+	ready: canWriteBeats,
+	job: { kind: 'plot.beats', per: 'stage', payloadKeys: 'slot', run: (ctx) => beatsRun(ctx) },
+	afterFinish: (db, s) => syncCast(db, s.id)
+};
 
-function statuses(s: PlotState, views: Map<string, ItemView>) {
-	const memo = new Map<string, Status>();
-	const locked = (slot: string) => Boolean(views.get(slot)?.locked);
-	const status = (slot: string): Status => {
-		const known = memo.get(slot);
-		if (known) return known;
-		const v = views.get(slot);
-		const current = v?.versions.find((x) => x.id === v.currentId);
-		let result: Status;
-		if (v?.pending) result = 'pending';
-		else if (!current) result = 'missing';
-		else if (current.outOfDate.length) result = 'outdated';
-		else {
-			const changing = upstreamOf(s, slot).some((u) => !locked(u) && status(u) !== 'ok');
-			result = changing ? 'upstream' : 'ok';
-		}
-		memo.set(slot, result);
-		return result;
-	};
-	const settled = (slot: string) =>
-		upstreamOf(s, slot).every((u) => locked(u) || status(u) === 'ok');
-	return { status, settled };
-}
+const reviewStage: Stage<PlotState> = {
+	id: 'review',
+	kind: 'ai-text',
+	kinds: ['review'],
+	slots: () => [reviewSlot],
+	inputs: reviewInputs,
+	upstream: beatSlots,
+	ready: canReview,
+	job: { kind: 'plot.review', per: 'stage', run: (ctx) => reviewRun(ctx) }
+};
 
-const viewsOf = (db: Db, s: PlotState) =>
-	describeScope(db, chapterScope(s.chapter.id), (i) => inputsFor(s, i), INPUT_LABELS);
+/** What each kind of input is called when saying why something is out of date. */
+const INPUT_LABELS: Record<string, string> = {
+	logline: 'the logline',
+	notes: 'your notes',
+	structure: 'the structure',
+	elements: 'the story elements',
+	pages: 'the page target',
+	beats: 'the beats'
+};
 
-/** Slots that can be (re)generated now: unlocked, missing or out of date, earlier steps settled. */
-function dueSlots(db: Db, s: PlotState, stage: PlotStage): string[] {
-	const views = viewsOf(db, s);
-	const { status, settled } = statuses(s, views);
-	const due = (slot: string) => {
-		if (views.get(slot)?.locked) return false;
-		const st = status(slot);
-		return (st === 'missing' || st === 'outdated') && settled(slot);
-	};
-	if (!s.chapter.logline && !textOf(s, 'notes')) return [];
-	if (stage === 'structure') return due('structure') ? ['structure'] : [];
-	if (!structureOf(s)) return [];
-	if (stage === 'elements') return ELEMENT_KINDS.filter(due);
-	if (ELEMENT_KINDS.some((k) => !textOf(s, k))) return [];
-	const beats = beatKeys(s).map((k) => `beat:${k}`);
-	if (stage === 'beats') return beats.filter(due);
-	if (beats.some((slot) => !s.current.get(slot))) return [];
-	return due('review') ? ['review'] : [];
-}
+const flow = engine<PlotState>({
+	domain: 'chapter',
+	load: loadState,
+	stages: [structureStage, elementsStage, beatsStage, reviewStage],
+	labels: INPUT_LABELS,
+	// The questions are made by the clarify flow, beside the engine.
+	inputsOutside: (s, ref) => (ref.kind === 'questions' ? ideaInputs(s) : null),
+	error: (message) => new PlotError(message)
+});
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -382,40 +409,36 @@ const emptyView = (kind: string, key = ''): ItemView => ({
 
 export function getPlot(db: Db, ownerId: number, seriesId: number, chapterId: number) {
 	const s = ownedState(db, ownerId, seriesId, chapterId);
-	const views = viewsOf(db, s);
-	const { status } = statuses(s, views);
-	const view = (slot: string) => {
-		const [kind, key = ''] = slot.split(':');
-		return views.get(slot) ?? emptyView(kind, key);
+	const snap = flow.describe(db, s, INPUT_LABELS);
+	const { views, status } = snap;
+	const view = (key: string) => {
+		const ref = parseSlot(key);
+		return views.get(key) ?? emptyView(ref.kind, ref.key ?? '');
 	};
 	const structure = structureOf(s);
 	const structureItem = view('structure');
 	const questions = view('questions');
-	const openQuestions = (() => {
-		const cur = questions.versions.find((v) => v.id === questions.currentId);
-		if (!cur || cur.outOfDate.length || questions.pending) return [];
-		return parseQuestions(cur.text);
-	})();
 	const beats = structure
 		? STRUCTURES[structure].beats.map((b) => {
-				const slot = `beat:${b.key}`;
-				return { ...b, item: view(slot), status: status(slot), value: parseBeat(textOf(s, slot)) };
+				const key = beatSlotKey(b.key);
+				return { ...b, item: view(key), status: status(key), value: parseBeat(textOf(s, key)) };
 			})
 		: [];
 	const review = view('review');
-	const summary = (slots: string[]) => {
-		const of = (want: Status[]) => slots.filter((slot) => want.includes(status(slot)));
+	const summary = (keys: string[]) => {
+		const of = (want: Status[]) => keys.filter((key) => want.includes(status(key)));
 		return {
-			total: slots.length,
+			total: keys.length,
 			pending: of(['pending']).length,
 			missing: of(['missing']).length,
-			stale: of(['outdated', 'upstream']).filter((slot) => !views.get(slot)?.locked).length,
-			kept: slots.filter((slot) => views.get(slot)?.locked).length
+			stale: of(['outdated', 'upstream']).filter((key) => !views.get(key)?.locked).length,
+			kept: keys.filter((key) => views.get(key)?.locked).length
 		};
 	};
 	const due = Object.fromEntries(
-		PLOT_STAGES.map((st) => [st, dueSlots(db, s, st).length])
+		PLOT_STAGES.map((st) => [st, flow.dueSlots(s, st, snap).length])
 	) as Record<PlotStage, number>;
+	const beatKeysInUse = beatSlots(s).map(slotKey);
 	// The AI's latest notes on the elements.
 	const elementNotes =
 		ELEMENT_KINDS.map((k) => s.current.get(k))
@@ -423,12 +446,12 @@ export function getPlot(db: Db, ownerId: number, seriesId: number, chapterId: nu
 			.sort((a, b) => b.id - a.id)[0]?.notes ?? '';
 	return {
 		pageTarget: s.chapter.pageTarget,
-		hasIdea: Boolean(s.chapter.logline || textOf(s, 'notes')),
+		hasIdea: hasIdea(s),
 		/** Every series character, for the beats' character lists. */
 		people: s.people.map((c) => ({ id: c.id, name: c.name, role: c.role })),
 		cast: s.people.filter((c) => s.cast.has(c.id)).map((c) => ({ id: c.id, name: c.name })),
 		notes: view('notes'),
-		questions: { item: questions, list: openQuestions },
+		questions: { item: questions, list: openQuestions(questions) },
 		structure: {
 			key: structure,
 			item: structureItem,
@@ -447,8 +470,8 @@ export function getPlot(db: Db, ownerId: number, seriesId: number, chapterId: nu
 		elementNotes,
 		/** The AI's latest notes on the beats. */
 		beatNotes:
-			beatKeys(s)
-				.map((k) => s.current.get(`beat:${k}`))
+			beatKeysInUse
+				.map((key) => s.current.get(key))
 				.filter((v): v is Version => Boolean(v?.notes))
 				.sort((a, b) => b.id - a.id)[0]?.notes ?? '',
 		beats,
@@ -459,15 +482,16 @@ export function getPlot(db: Db, ownerId: number, seriesId: number, chapterId: nu
 			idea: {
 				total: 1,
 				pending: 0,
-				missing: s.chapter.logline || textOf(s, 'notes') ? 0 : 1,
+				missing: hasIdea(s) ? 0 : 1,
 				stale: 0,
 				kept: 0
 			},
 			structure: summary(['structure']),
 			elements: summary([...ELEMENT_KINDS]),
-			beats: summary(beatKeys(s).map((k) => `beat:${k}`)),
+			beats: summary(beatKeysInUse),
 			review: summary(['review'])
 		},
+		// Orphaned beats (of a structure chosen earlier) count too.
 		busy: [...views.values()].some((v) => v.pending)
 	};
 }
@@ -487,12 +511,12 @@ function run<T>(fn: () => T): T {
 	}
 }
 
-const item = (db: Db, s: PlotState, kind: string, key = '') =>
-	ensureItem(db, s.series.ownerId, chapterScope(s.chapter.id), kind, key);
+const item = (db: Db, s: PlotState, ref: SlotRef) => flow.item(db, s, ref);
 
 /** Set a new version of the user's own text, or only the lock when the text is unchanged. */
 function saveOwn(db: Db, s: PlotState, it: Item, text: string, keep: boolean, generated: boolean) {
-	const now = s.current.get(it.key ? `${it.kind}:${it.key}` : it.kind)?.text ?? '';
+	const ref = slot(it.kind, it.key);
+	const now = textOf(s, slotKey(ref));
 	if (text === now) {
 		if (generated && it.currentVersionId !== null && it.locked !== keep) {
 			db.update(items).set({ locked: keep }).where(eq(items.id, it.id)).run();
@@ -504,7 +528,7 @@ function saveOwn(db: Db, s: PlotState, it: Item, text: string, keep: boolean, ge
 		addVersion(
 			db,
 			it,
-			{ origin: 'user', text, inputs: inputsFor(s, it) ?? {} },
+			{ origin: 'user', text, inputs: flow.inputsFor(s, ref) ?? {} },
 			generated ? { keep } : {}
 		)
 	);
@@ -520,7 +544,7 @@ export function saveNotes(
 	text: string
 ) {
 	const s = ownedState(db, ownerId, seriesId, chapterId);
-	saveOwn(db, s, item(db, s, 'notes'), text.trim(), false, false);
+	saveOwn(db, s, item(db, s, slot('notes')), text.trim(), false, false);
 }
 
 export function setPageTarget(
@@ -550,7 +574,7 @@ export function chooseStructure(
 ) {
 	if (!isStructure(key)) throw new PlotError('Choose one of the structures.');
 	const s = ownedState(db, ownerId, seriesId, chapterId);
-	const it = item(db, s, 'structure');
+	const it = item(db, s, structureSlot);
 	if (key === structureOf(s)) {
 		if (!it.locked) db.update(items).set({ locked: true }).where(eq(items.id, it.id)).run();
 		return;
@@ -572,7 +596,7 @@ export function saveElement(
 ) {
 	if (!isElementKind(kind)) throw new PlotError('Unknown story element.');
 	const s = ownedState(db, ownerId, seriesId, chapterId);
-	saveOwn(db, s, item(db, s, kind), text.trim(), keep, true);
+	saveOwn(db, s, item(db, s, slot(kind)), text.trim(), keep, true);
 }
 
 export function saveBeat(
@@ -601,70 +625,12 @@ export function saveBeat(
 	saveOwn(
 		db,
 		s,
-		item(db, s, 'beat', key),
+		item(db, s, beatSlot(key)),
 		beatText({ text, pages, characters: unique }),
 		keep,
 		true
 	);
 	syncCast(db, chapterId);
-}
-
-/** Options for the jobs a request starts. */
-interface Start {
-	guidance?: string;
-	/** Stages to carry on with once this one finishes. */
-	cascade?: PlotStage[];
-}
-
-function startJob(
-	db: Db,
-	s: PlotState,
-	kind: string,
-	slots: string[],
-	opts: Start,
-	extra: Record<string, unknown> = {}
-): number {
-	if (!slots.length) return 0;
-	const started = run(() =>
-		slots.map((slot) => {
-			const [k, key = ''] = slot.split(':');
-			return [slot, startVersion(db, item(db, s, k, key), { guidance: opts.guidance }).id] as const;
-		})
-	);
-	const job = enqueue(db, s.series.ownerId, kind, {
-		chapterId: s.chapter.id,
-		versionIds: Object.fromEntries(started),
-		guidance: opts.guidance?.trim() ?? '',
-		cascade: opts.cascade ?? [],
-		...extra
-	});
-	attachJob(
-		db,
-		started.map(([, id]) => id),
-		job.id
-	);
-	return started.length;
-}
-
-const JOB_OF: Record<PlotStage, string> = {
-	structure: 'plot.structure',
-	elements: 'plot.elements',
-	beats: 'plot.beats',
-	review: 'plot.review'
-};
-
-const after = (stage: PlotStage, cascade: PlotStage[]) =>
-	cascade.filter((st) => PLOT_STAGES.indexOf(st) > PLOT_STAGES.indexOf(stage));
-
-function advance(db: Db, chapterId: number, stages: readonly PlotStage[]): number {
-	const s = loadState(db, chapterId);
-	if (!s) return 0;
-	const cascade = [...stages];
-	let started = 0;
-	for (const stage of stages) {
-		started += startJob(db, s, JOB_OF[stage], dueSlots(db, s, stage), { cascade });
-	}
-	return started;
 }
 
 /**
@@ -679,15 +645,16 @@ export function updatePlot(
 	stages: readonly PlotStage[] = PLOT_STAGES
 ): number {
 	const s = ownedState(db, ownerId, seriesId, chapterId);
-	if (!s.chapter.logline && !textOf(s, 'notes')) {
+	if (!hasIdea(s)) {
 		throw new PlotError('Write the logline or your notes first.');
 	}
-	return advance(db, chapterId, stages);
+	return flow.advance(db, chapterId, stages);
 }
 
 /**
- * Regenerate one stage (or one item of it) on request, with the user's
- * guidance; what comes after is carried on.
+ * Regenerate one stage (or one item of it, `only` being its slot key:
+ * "structure", an element's kind, "beat:<key>" or "review") on request,
+ * with the user's guidance; what comes after is carried on.
  */
 export function requestStage(
 	db: Db,
@@ -698,34 +665,58 @@ export function requestStage(
 	opts: { only?: string; guidance?: string } = {}
 ): number {
 	const s = ownedState(db, ownerId, seriesId, chapterId);
-	const views = viewsOf(db, s);
+	const { views } = flow.describe(db, s);
 	const all =
 		stage === 'structure'
-			? ['structure']
+			? [structureSlot]
 			: stage === 'elements'
-				? [...ELEMENT_KINDS]
+				? elementSlots
 				: stage === 'beats'
-					? beatKeys(s).map((k) => `beat:${k}`)
-					: ['review'];
+					? beatSlots(s)
+					: [reviewSlot];
 	if (stage !== 'structure' && !structureOf(s)) throw new PlotError('Choose a structure first.');
 	if ((stage === 'beats' || stage === 'review') && ELEMENT_KINDS.some((k) => !textOf(s, k))) {
 		throw new PlotError('Write the story elements first.');
 	}
-	const slots = (opts.only ? all.filter((slot) => slot === opts.only) : all).filter(
-		(slot) => !views.get(slot)?.locked
+	const slots = (opts.only ? all.filter((ref) => slotKey(ref) === opts.only) : all).filter(
+		(ref) => !views.get(slotKey(ref))?.locked
 	);
 	if (!slots.length) throw new PlotError('It is locked. Unlock it to regenerate it.');
 	const cascade = PLOT_STAGES.slice(PLOT_STAGES.indexOf(stage) + 1);
-	return startJob(db, s, JOB_OF[stage], slots, { guidance: opts.guidance, cascade });
+	return flow.start(db, s, stage, slots, { guidance: opts.guidance, cascade });
+}
+
+// ---------------------------------------------------------------------------
+// Clarify
+//
+// Before the plot is written, the story editor can ask what the idea leaves
+// open: `requestQuestions` makes a "questions" item (job `plot.questions`)
+// from the logline and notes; `answerQuestions` starts a new version of the
+// user's notes with the answers as its guidance, which the AI folds in (job
+// `plot.fold`), and then puts the questions away with an empty user version
+// ("[]"); `skipQuestions` puts them away unanswered. Questions about notes
+// that have changed since are out of date and not shown.
+//
+// This runs beside the engine, not as a stage: nothing is made from the
+// questions, the fold writes the user's own notes, and neither cascades.
+// Styles have the same flow (on their description); it differs in details
+// (questions must be non-empty there, a locked item is skipped rather than
+// refused), so the two stay separate until styles move onto the engine.
+
+/** The questions not yet answered or skipped: none while new ones are asked or the idea changed. */
+function openQuestions(questions: ItemView): Question[] {
+	const cur = questions.versions.find((v) => v.id === questions.currentId);
+	if (!cur || cur.outOfDate.length || questions.pending) return [];
+	return parseQuestions(cur.text);
 }
 
 /** Ask the story editor what the idea leaves open. */
 export function requestQuestions(db: Db, ownerId: number, seriesId: number, chapterId: number) {
 	const s = ownedState(db, ownerId, seriesId, chapterId);
-	if (!s.chapter.logline && !textOf(s, 'notes')) {
+	if (!hasIdea(s)) {
 		throw new PlotError('Write the logline or your notes first.');
 	}
-	const it = item(db, s, 'questions');
+	const it = item(db, s, slot('questions'));
 	const version = run(() => startVersion(db, it));
 	const job = enqueue(db, ownerId, 'plot.questions', {
 		chapterId,
@@ -749,7 +740,7 @@ export function answerQuestions(
 		.filter((qa) => qa.answer);
 	if (!answered.length) throw new PlotError('Answer at least one question, or skip them.');
 	const version = run(() =>
-		startVersion(db, item(db, s, 'notes'), {
+		startVersion(db, item(db, s, slot('notes')), {
 			guidance: answered.map((qa) => `${qa.question} ${qa.answer}`).join('\n')
 		})
 	);
@@ -760,7 +751,7 @@ export function answerQuestions(
 export function skipQuestions(db: Db, ownerId: number, seriesId: number, chapterId: number) {
 	const s = ownedState(db, ownerId, seriesId, chapterId);
 	run(() =>
-		addVersion(db, item(db, s, 'questions'), {
+		addVersion(db, item(db, s, slot('questions')), {
 			origin: 'user',
 			text: '[]',
 			inputs: ideaInputs(s)
@@ -930,22 +921,22 @@ export function beatsMessages(s: PlotState, rewrite: string[], guidance: string)
 		'The beats (key: name: what it is for):',
 		...STRUCTURES[key].beats.map((b) => `- ${b.key}: ${b.label}: ${b.hint}`)
 	);
-	const kept = beatKeys(s).filter((k) => !rewrite.includes(k) && textOf(s, `beat:${k}`));
+	const kept = beatKeys(s).filter((k) => !rewrite.includes(k) && textOf(s, beatSlotKey(k)));
 	if (kept.length) {
 		lines.push(
 			'Kept beats (fit around these; do not repeat them):',
 			...kept.map((k) => {
-				const b = parseBeat(textOf(s, `beat:${k}`));
+				const b = parseBeat(textOf(s, beatSlotKey(k)));
 				return `- ${k} (${b?.pages ?? 0} pages; ${namesOf(s, b?.characters ?? []) || 'nobody'}): ${b?.text ?? ''}`;
 			})
 		);
 	}
 	if (guidance) {
-		const previous = rewrite.filter((k) => textOf(s, `beat:${k}`));
+		const previous = rewrite.filter((k) => textOf(s, beatSlotKey(k)));
 		if (previous.length) {
 			lines.push(
 				'The current draft of the beats to rewrite:',
-				...previous.map((k) => `- ${k}: ${parseBeat(textOf(s, `beat:${k}`))?.text ?? ''}`)
+				...previous.map((k) => `- ${k}: ${parseBeat(textOf(s, beatSlotKey(k)))?.text ?? ''}`)
 			);
 		}
 		lines.push(`The writer's feedback: ${guidance}`);
@@ -982,7 +973,7 @@ export function reviewMessages(s: PlotState, guidance: string) {
 		...ELEMENTS.map((e) => `- ${e.label}: ${textOf(s, e.kind)}`),
 		'Outline:',
 		...STRUCTURES[key].beats.map((b) => {
-			const beat = parseBeat(textOf(s, `beat:${b.key}`));
+			const beat = parseBeat(textOf(s, beatSlotKey(b.key)));
 			return `- ${b.label} (${beat?.pages ?? 0} pages): ${beat?.text ?? ''}`;
 		})
 	);
@@ -1015,26 +1006,6 @@ const foldReply = z.object({ notes: z.string().min(1) });
 
 // ---------------------------------------------------------------------------
 // Jobs
-
-interface Payload {
-	chapterId: number;
-	versionIds: Record<string, number>;
-	guidance: string;
-	cascade: PlotStage[];
-}
-
-/**
- * The versions a job is still to make: those not dropped or replaced
- * meanwhile. (A job can start before it is attached to its versions, so this
- * checks the versions themselves, not their job.)
- */
-function pendingOf(db: Db, versionIds: Record<string, number>) {
-	return Object.entries(versionIds).filter(
-		([, id]) =>
-			db.select({ status: versions.status }).from(versions).where(eq(versions.id, id)).get()
-				?.status === 'pending'
-	);
-}
 
 const namesOf = (s: PlotState, ids: number[]) =>
 	ids
@@ -1093,7 +1064,7 @@ export function syncCast(db: Db, chapterId: number): void {
 	const s = loadState(db, chapterId);
 	if (!s) return;
 	const beats = beatKeys(s)
-		.map((k) => parseBeat(textOf(s, `beat:${k}`)))
+		.map((k) => parseBeat(textOf(s, beatSlotKey(k))))
 		.filter((b): b is BeatText => b !== null);
 	if (!beats.length) return;
 	const wanted = new Set(beats.flatMap((b) => b.characters));
@@ -1112,54 +1083,44 @@ export function syncCast(db: Db, chapterId: number): void {
 	}
 }
 
-const structureHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { chapterId, versionIds, guidance, cascade } = job.payload as Payload;
-	const s = loadState(db, chapterId);
-	if (!s || !pendingOf(db, versionIds).length) return;
+/** The structure; nothing at all (no cascade) if its version was dropped meanwhile. */
+const structureRun: StepRun<PlotState> = async ({ ai, signal, state: s, slots, guidance }) => {
+	if (!slots.some((x) => x.version?.status === 'pending')) return null;
 	const reply = await ai.text.json(structureMessages(s, guidance), structureReply, signal);
 	const key = reply.structure.trim();
 	if (!isStructure(key)) throw new Error(`The AI chose an unknown structure: ${key}`);
-	finishVersion(db, versionIds.structure!, {
-		text: key,
-		notes: reply.reason.trim(),
-		inputs: structureInputs(s),
-		model: ai.text.name
-	});
-	advance(db, chapterId, after('structure', cascade));
+	return new Map([
+		[slotKey(structureSlot), { text: key, notes: reply.reason.trim(), model: ai.text.name }]
+	]);
 };
 
-const elementsHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { chapterId, versionIds, guidance, cascade } = job.payload as Payload;
-	const s = loadState(db, chapterId);
-	if (!s || !structureOf(s)) return;
-	const rewrite = ELEMENT_KINDS.filter((k) => versionIds[k] !== undefined);
+/** The elements asked for; one the AI leaves empty is dropped. */
+const elementsRun: StepRun<PlotState> = async ({ ai, signal, state: s, slots, guidance }) => {
+	if (!structureOf(s)) return null;
+	const rewrite = ELEMENT_KINDS.filter((k) => slots.some((x) => x.ref.kind === k));
 	const reply = await ai.text.json(elementsMessages(s, rewrite, guidance), elementsReply, signal);
 	const notes = reply.notes.trim();
-	const inputs = elementInputs(s);
-	for (const kind of rewrite) {
-		const text = reply[kind]?.trim();
-		if (text) {
-			finishVersion(db, versionIds[kind]!, {
-				text,
-				inputs,
-				notes,
-				model: ai.text.name
-			});
-		} else abandonVersion(db, versionIds[kind]!);
-	}
-	advance(db, chapterId, after('elements', cascade));
+	return new Map(
+		rewrite.map((kind) => {
+			const text = reply[kind]?.trim();
+			return [slotKeyOf(kind), text ? { text, notes, model: ai.text.name } : null];
+		})
+	);
 };
 
-const beatsHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { chapterId, versionIds, guidance, cascade } = job.payload as Payload;
-	const s = loadState(db, chapterId);
-	if (!s || !structureOf(s)) return;
-	const rewrite = beatKeys(s).filter((k) => versionIds[`beat:${k}`] !== undefined);
-	// Beats of a structure no longer in use are dropped.
-	for (const [slot, id] of Object.entries(versionIds)) {
-		if (!rewrite.includes(slot.split(':')[1] ?? '')) abandonVersion(db, id);
+/**
+ * The beats asked for, of the structure in use: beats of a structure no
+ * longer in use (chosen while the job waited) are dropped first, and if none
+ * is left the job does nothing at all. Characters the beats name who are not
+ * in the series yet are added to it; the cast follows (`afterFinish`).
+ */
+const beatsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, guidance }) => {
+	if (!structureOf(s)) return null;
+	const rewrite = beatKeys(s).filter((k) => slots.some((x) => x.ref.key === k));
+	for (const { ref, version } of slots) {
+		if (version && !rewrite.includes(ref.key ?? '')) abandonVersion(db, version.id);
 	}
-	if (!rewrite.length) return;
+	if (!rewrite.length) return null;
 	const reply = await ai.text.json(beatsMessages(s, rewrite, guidance), beatsReply, signal);
 	const written = rewrite.map((key) => reply.beats.find((x) => x.key.trim() === key));
 	const { ids, created } = resolveCharacters(
@@ -1174,38 +1135,36 @@ const beatsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	]
 		.filter(Boolean)
 		.join(' ');
-	const inputs = beatInputs(s);
-	rewrite.forEach((key, i) => {
-		const id = versionIds[`beat:${key}`]!;
-		const b = written[i];
-		if (b?.text.trim()) {
-			finishVersion(db, id, {
-				text: beatText({
-					text: b.text.trim(),
-					pages: Math.max(0, Math.round(b.pages)),
-					characters: ids[i]!
-				}),
-				inputs,
-				notes,
-				model: ai.text.name
-			});
-		} else abandonVersion(db, id);
-	});
-	syncCast(db, chapterId);
-	advance(db, chapterId, after('beats', cascade));
+	return new Map(
+		rewrite.map((key, i) => {
+			const b = written[i];
+			return [
+				beatSlotKey(key),
+				b?.text.trim()
+					? {
+							text: beatText({
+								text: b.text.trim(),
+								pages: Math.max(0, Math.round(b.pages)),
+								characters: ids[i]!
+							}),
+							notes,
+							model: ai.text.name
+						}
+					: null
+			];
+		})
+	);
 };
 
-const reviewHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { chapterId, versionIds, guidance } = job.payload as Payload;
-	const s = loadState(db, chapterId);
-	if (!s || !structureOf(s)) return;
+const reviewRun: StepRun<PlotState> = async ({ ai, signal, state: s, guidance }) => {
+	if (!structureOf(s)) return null;
 	const reply = await ai.text.json(reviewMessages(s, guidance), reviewReply, signal);
-	finishVersion(db, versionIds.review!, {
-		text: JSON.stringify(reply.notes.slice(0, 8)),
-		inputs: reviewInputs(s),
-		model: ai.text.name
-	});
+	return new Map([
+		[slotKey(reviewSlot), { text: JSON.stringify(reply.notes.slice(0, 8)), model: ai.text.name }]
+	]);
 };
+
+// The clarify flow's jobs (see "Clarify").
 
 const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const { chapterId, versionId } = job.payload as { chapterId: number; versionId: number };
@@ -1261,17 +1220,14 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	});
 	// The questions were about the old notes; they are now answered.
 	const now = loadState(db, chapterId)!;
-	const questions = item(db, now, 'questions');
+	const questions = item(db, now, slot('questions'));
 	if (!questions.locked) {
 		addVersion(db, questions, { origin: 'user', text: '[]', inputs: ideaInputs(now) });
 	}
 };
 
 export const plotJobHandlers: Record<string, JobHandler> = {
-	'plot.structure': structureHandler,
-	'plot.elements': elementsHandler,
-	'plot.beats': beatsHandler,
-	'plot.review': reviewHandler,
+	...flow.handlers(),
 	'plot.questions': questionsHandler,
 	'plot.fold': foldHandler
 };

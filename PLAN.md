@@ -372,6 +372,19 @@ domain module:
   jobs, prompts, `afterDevelop`). Characters and locations run on it;
   prompts stay in the domain module. A character's `afterDevelop` locks the
   first name the AI writes; a location's only copies the name to its row.
+- Plots (`plots.ts`) build their four stages directly on `engine`. The
+  beats' fan-out is the chosen structure's beats and the review's upstream
+  is those beats, so beats of an earlier structure stay in the scope as
+  orphans (shown as busy while pending, dropped from a job that finds them
+  orphaned). A job's `run` may return null to say it had nothing to do (its
+  versions were dropped, or no structure is chosen): its versions are left,
+  and neither `afterFinish` nor the cascade runs. The beats job keeps its
+  payload keyed by whole slots (`payloadKeys: 'slot'`, "beat:hook"); the
+  engine reads either form back. The questions → answers → notes clarify
+  flow stays outside the engine in `plots.ts`; the pipeline's
+  `inputsOutside` gives its questions their inputs so they go out of date.
+  It differs from the styles' flow in details (empty questions, locked
+  items), so a shared `pipeline/clarify.ts` waits for step 4.
 
 The refactor lands in small, behaviour-preserving PRs:
 
@@ -380,10 +393,13 @@ The refactor lands in small, behaviour-preserving PRs:
 2. Locations on the same `entityPipeline` factory (v0.23.2).
 3. Plots: slots and upstream as functions of the state, `ready` gates, the
    cast sync as `afterFinish`. The questions → answers → fold "clarify" flow
-   that plots and styles share stays a helper outside the engine.
+   stays outside the engine, in `plots.ts` for now (v0.23.3).
 4. Styles on the engine with `cascades: false` everywhere: never
    auto-rerender, but keep transitive "out of date"/"upstream" highlighting
-   so users regenerate by hand.
+   so users regenerate by hand. Extract the clarify flow plots and styles
+   share into `pipeline/clarify.ts`, reconciling their differences (styles
+   reject empty questions and skip a locked questions item; plots accept
+   them and refuse).
 5. Prompt registry: `definePrompt(id, text)` → `{ id, text, hash }` with
    namespaced ids (`character.develop`); versions gain `prompt_id` and
    `prompt_hash`, and show a soft "made with an earlier version of the
