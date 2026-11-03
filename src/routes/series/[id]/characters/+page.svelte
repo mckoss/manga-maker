@@ -37,6 +37,16 @@
 					{/if}
 					<strong>{c.name || 'Unnamed'}</strong>
 					<small>{roleLabel(c.role)} · {c.thumb ? 'reference chosen' : 'designing'}</small>
+					{#if c.todo.some((t) => !t.done)}
+						<ul class="todo" aria-label="To do for {c.name || 'this character'}">
+							{#each c.todo as t (t.step)}
+								<li class:done={t.done}>
+									<span aria-hidden="true">{t.done ? '☑' : '☐'}</span>
+									{t.step}<span class="visually-hidden">{t.done ? ': done' : ': to do'}</span>
+								</li>
+							{/each}
+						</ul>
+					{/if}
 				</a>
 			</li>
 		{/each}
@@ -82,6 +92,16 @@
 </form>
 
 <style>
+	.todo {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		font-size: 12px;
+		color: var(--warn);
+	}
+	.todo li.done {
+		color: var(--muted);
+	}
 	.cast {
 		list-style: none;
 		padding: 0;

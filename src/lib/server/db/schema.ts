@@ -175,6 +175,8 @@ export const chapters = sqliteTable('chapters', {
 	title: text('title').notNull().default(''),
 	/** One or two sentences: what happens in this chapter. */
 	logline: text('logline').notNull().default(''),
+	/** How many pages the plot is paced for. */
+	pageTarget: integer('page_target').notNull().default(20),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 });

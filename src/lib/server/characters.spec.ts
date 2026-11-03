@@ -191,7 +191,9 @@ describe('characters', () => {
 		// The designs are made from the notes too; their pictures will change
 		// once they do.
 		expect(detail.designs.every((d) => d.designStatus === 'outdated')).toBe(true);
-		expect(detail.flow.profile.stale).toBe(8);
+		// The name is canonical once the AI gives it: locked, so not stale.
+		expect(detail.flow.profile.stale).toBe(7);
+		expect(detail.profile[0].item.locked).toBe(true);
 
 		// The user's own wording is kept from then on; the AI rewrites the rest.
 		saveText(db, owner, id, 'speech', 'Mumbles.');
@@ -199,7 +201,7 @@ describe('characters', () => {
 		detail = getCharacter(db, owner, id);
 		expect(detail.profile.find((p) => p.kind === 'speech')!.item.locked).toBe(true);
 		expect(detail.profile.find((p) => p.kind === 'backstory')!.status).toBe('ok');
-		expect(updateOutdated(db, owner, id, ['profile'])).toBe(6);
+		expect(updateOutdated(db, owner, id, ['profile'])).toBe(5);
 		await worker.drain();
 		expect(field(id, 'speech')).toBe('Mumbles.');
 		expect(field(id, 'personality')).toBe('Stubborn, round 2.');
@@ -436,7 +438,8 @@ describe('characters', () => {
 		await worker.drain();
 		const detail = getCharacter(db, owner, id);
 		setLocked(db, characterAccess(db, owner, id), detail.profile[1].item.id, true);
-		expect(requestProfile(db, owner, id, { guidance: 'make her older' })).toBe(7);
+		// Everything but the kept field and the canonical name.
+		expect(requestProfile(db, owner, id, { guidance: 'make her older' })).toBe(6);
 		await worker.drain();
 		const sent = lastSent('story editor');
 		expect(sent).toContain("The user's feedback: make her older");

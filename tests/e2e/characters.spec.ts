@@ -50,7 +50,8 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	await notes.fill('a runaway boy with a staff');
 	await notes.blur();
 	await expect(flow.getByRole('listitem').filter({ hasText: 'Profile' })).toContainText(
-		'8 to update'
+		// The name is canonical once given, so it stays locked.
+		'7 to update · 1 locked'
 	);
 	await expect(profile.getByText('Out of date').first()).toBeVisible();
 

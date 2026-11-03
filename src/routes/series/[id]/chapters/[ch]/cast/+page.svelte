@@ -23,6 +23,12 @@
 	when it joined this chapter; when the series has a newer design, you choose whether this chapter
 	moves to it.
 </p>
+<p class="notice">
+	Once the
+	<a href={resolve('/series/[id]/chapters/[ch]/plot', { id, ch: String(data.chapter.id) })}>plot</a>
+	has beats, the cast is everyone in them: edit who is in each beat there. Someone added or removed here
+	comes back or goes again when the beats change.
+</p>
 {#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
 
 <h2>In this chapter</h2>

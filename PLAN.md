@@ -188,6 +188,16 @@ image already generated, never a required step before generating one.
   (`qwen_image_2.1_fun_controlnet_union`, not downloaded yet). Then build
   in order: mannequin and camera, block-out scenes, line-drawing pass.
 
+### Backlog: names as references
+
+The plot, scenes and dialogue should refer to characters and locations by
+id, not by name, so a later revision can rename someone ("Jovi" → "Jun")
+without rewriting the story: names are filled in when text is shown, and
+when dialogue is lettered into the final pages. For now, a character's first
+name is its canonical name: the AI's first name for a character is locked,
+the plot uses it, and a global replace when lettering is the planned way to
+change it.
+
 ### Image runtime: ComfyUI
 
 The app drives a local **ComfyUI** server through its HTTP API

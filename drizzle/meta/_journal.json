@@ -92,6 +92,13 @@
       "when": 1793721591845,
       "tag": "0012_model_choice",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1793722916347,
+      "tag": "0013_chapter_plot",
+      "breakpoints": true
     }
   ]
 }

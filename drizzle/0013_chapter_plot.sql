@@ -1,0 +1,1 @@
+ALTER TABLE `chapters` ADD `page_target` integer DEFAULT 20 NOT NULL;

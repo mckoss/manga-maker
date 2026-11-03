@@ -157,6 +157,13 @@ export function deleteSeries(db: Db, ownerId: number, seriesId: number): void {
 			.all()) {
 			deleteScope(db, `location:${id}`);
 		}
+		for (const { id } of db
+			.select({ id: chapters.id })
+			.from(chapters)
+			.where(eq(chapters.seriesId, seriesId))
+			.all()) {
+			deleteScope(db, `chapter:${id}`);
+		}
 		deleteScope(db, seriesScope(seriesId));
 		db.delete(series).where(eq(series.id, seriesId)).run();
 	});
