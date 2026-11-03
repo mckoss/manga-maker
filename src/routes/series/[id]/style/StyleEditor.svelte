@@ -60,9 +60,10 @@
 </ol>
 <p class="hint">
 	Each step is made from the ones before it. When an earlier step changes, what was made from it is
-	marked <span class="badge warn">Out of date</span>, with a Regenerate button. Every version is
-	saved: browse back with ‹ ›, select one, and lock what you're happy with so it is never
-	regenerated.
+	marked <span class="badge warn">Out of date</span>, with a Regenerate button, and what is made
+	from that in turn <span class="badge muted">Earlier step changed</span>. Nothing is regenerated
+	until you ask. Every version is saved: browse back with ‹ ›, select one, and lock what you're
+	happy with so it is never regenerated.
 	{#if ed.ready}
 		The rest of the series is drawn with the current prompt.
 		<a href={resolve('/series/[id]/characters', { id })}>Next: characters →</a>
@@ -122,6 +123,7 @@
 		kind="prompt"
 		lines={4}
 		notesBy="AI art director"
+		status={ed.promptStatus}
 		regenerate={{
 			action: 'writePrompt',
 			placeholder: 'Thicker outlines, fewer screentones, softer faces…'
@@ -178,6 +180,7 @@
 				label="{scene.label} scene"
 				kind="scene"
 				key={scene.key}
+				status={scene.status}
 				regenerate={{
 					action: 'writeScenes',
 					which: scene.key,
@@ -185,7 +188,12 @@
 				}}
 			/>
 			<div class="samples">
-				<PictureCard item={picture.item} label={picture.label} subject={picture.key} />
+				<PictureCard
+					item={picture.item}
+					label={picture.label}
+					subject={picture.key}
+					status={picture.status}
+				/>
 			</div>
 		</div>
 	{/each}

@@ -155,7 +155,9 @@ no behaviour.
       `ready` gates, the cast sync as `afterFinish`; the clarify flow stays
       in `plots.ts` beside the engine, to share with styles in the next step
       (v0.23.3)
-- [ ] Styles on the engine, `cascades: false` throughout
+- [x] Styles on the engine, `cascades: false` throughout: nothing redraws
+      by itself, and a picture whose prompt or scene changed shows "Earlier
+      step changed"; the clarify flow stays in each domain (v0.24.0)
 - [ ] Prompt registry with prompt ids and hashes on versions
 - [ ] Run records (messages, replies, retries; image workflow, model, seed)
 - [ ] Fake text replies routed by prompt id
