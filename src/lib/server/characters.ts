@@ -15,6 +15,7 @@ import {
 } from './db/schema';
 import { randomSeed } from './ai/image';
 import type { JobHandler } from './jobs';
+import { putRun } from './runs';
 import { askJson } from './prompts/ask';
 import { ownedSeries, touchSeries } from './series';
 import {
@@ -962,20 +963,25 @@ const developRun: StepRun<CharacterState> = async ({
 	guidance
 }) => {
 	const rewrite = PROFILE_KINDS.filter((k) => slots.some((x) => x.ref.kind === k));
-	const { value: reply, prompt } = await askJson(
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'character.develop',
 		developMessages(s, castOf(db, s), rewrite, guidance),
 		developReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	return new Map(
 		rewrite.map((kind) => {
 			const raw = reply[kind].trim();
 			const text = kind === 'appearance' || kind === 'outfit' ? positiveOnly(raw) : raw;
 			return [
 				kind,
-				text ? { text, notes: reply.notes.trim(), model: ai.text.name, ...prompt } : null
+				text ? { text, notes: reply.notes.trim(), model: ai.text.name, ...prompt, runHash } : null
 			];
 		})
 	);
@@ -1054,13 +1060,18 @@ const designsRun: StepRun<CharacterState> = async ({
 	const others = DESIGN_KEYS.filter((k) => !keys.includes(k))
 		.map((k) => parseDesign(textOf(s, slotKeyOf('design', k))))
 		.filter((d): d is Design => d !== null);
-	const { value: reply, prompt } = await askJson(
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'character.designs',
 		designMessages(s, keys.length, others, guidance),
 		designsReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	const clean = (list: string[]) => list.map((t) => t.trim()).filter(Boolean);
 	db.update(characters)
 		.set({ designTraits: { fixed: clean(reply.fixed), free: clean(reply.free) } })
@@ -1074,7 +1085,7 @@ const designsRun: StepRun<CharacterState> = async ({
 				appearance: positiveOnly(d?.appearance.trim() || textOf(s, 'appearance')),
 				outfit: positiveOnly(d?.outfit.trim() || textOf(s, 'outfit'))
 			});
-			return [slotKeyOf('design', key), { text, model: ai.text.name, ...prompt }];
+			return [slotKeyOf('design', key), { text, model: ai.text.name, ...prompt, runHash }];
 		})
 	);
 };

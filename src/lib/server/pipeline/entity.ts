@@ -4,6 +4,7 @@ import { randomSeed } from '../ai/image';
 import { isImageModel } from '#lib/models.js';
 import { negativeFor, pictureModel } from '../models';
 import { putImage, readAsset } from '../assets';
+import { imageRunRecord, putRun } from '../runs';
 import type { DrawingStyle } from '../styles';
 import { slot, slotKey, slotKeyOf, type ScopeKind, type SlotRef } from './ids';
 import { engine } from './engine';
@@ -151,19 +152,13 @@ export function entityPipeline<S extends EntityState>(config: EntityConfig<S>) {
 					version!.guidance
 				);
 				const model = modelOf(db, s, version!);
-				const result = await ai.image.generate(
-					{
-						model,
-						prompt,
-						negative: negativeFor(model, s.series),
-						seed: version!.seed ?? 0,
-						...config.pictureSize
-					},
-					signal
-				);
+				const seed = version!.seed ?? 0;
+				const request = { prompt, negative: negativeFor(model, s.series), ...config.pictureSize };
+				const result = await ai.image.generate({ model, seed, ...request }, signal);
 				const { hash, thumbHash } = await putImage(db, result.png);
+				const runHash = await putRun(db, imageRunRecord(result, seed, request));
 				return new Map([
-					[slotKey(ref), { text: prompt, assetHash: hash, thumbHash, model: result.model }]
+					[slotKey(ref), { text: prompt, assetHash: hash, thumbHash, model: result.model, runHash }]
 				]);
 			}
 		}
@@ -227,19 +222,19 @@ export function entityPipeline<S extends EntityState>(config: EntityConfig<S>) {
 					textOf(s, what)
 				);
 				const model = modelOf(db, s, version!);
+				const seed = version!.seed ?? 0;
+				const negative = negativeFor(model, s.series);
 				const result = await ai.image.edit(
-					{
-						model,
-						prompt,
-						negative: negativeFor(model, s.series),
-						images: [readAsset(ref0.assetHash)],
-						seed: version!.seed ?? 0
-					},
+					{ model, prompt, negative, images: [readAsset(ref0.assetHash)], seed },
 					signal
 				);
 				const { hash, thumbHash } = await putImage(db, result.png);
+				const runHash = await putRun(
+					db,
+					imageRunRecord(result, seed, { prompt, negative, images: [ref0.assetHash] })
+				);
 				return new Map([
-					[slotKey(ref), { text: prompt, assetHash: hash, thumbHash, model: result.model }]
+					[slotKey(ref), { text: prompt, assetHash: hash, thumbHash, model: result.model, runHash }]
 				]);
 			}
 		},

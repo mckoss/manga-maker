@@ -4,7 +4,9 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
-import { items, jobs, versions } from './db/schema';
+import { assets, items, jobs, versions } from './db/schema';
+import { readAsset } from './assets';
+import { canonicalJson, putRun, type ImageRunRecord, type TextRunRecord } from './runs';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
 import type { ChatMessage } from './ai/text';
 import { Worker } from './jobs';
@@ -491,6 +493,90 @@ describe('prompt revisions', () => {
 		const all = [style.prompt, ...style.scenes.map((s) => s.item)].flatMap((i) => i.versions);
 		expect(all.length).toBeGreaterThan(0);
 		expect(all.every((v) => v.promptChanged === false)).toBe(true);
+	});
+});
+
+describe('run records', () => {
+	const record = <T>(hash: string | null | undefined): T => {
+		expect(hash).toMatch(/^[0-9a-f]{64}$/);
+		return JSON.parse(readAsset(hash!).toString('utf8')) as T;
+	};
+
+	it('stores what a text step sent and what came back', async () => {
+		const id = createStyle(db, owner, input);
+		await worker.drain();
+		const v = current(getStyle(db, owner, id).prompt)!;
+		const run = record<TextRunRecord>(v.runHash);
+		expect(run).toMatchObject({ kind: 'text', version: 1, model: 'fake-text' });
+		expect(run.messages[0]).toEqual({ role: 'system', content: prompt('style.prompt').text });
+		expect(run.messages[1].content).toContain('gritty noir');
+		expect(run.attempts).toEqual([
+			{
+				reply: JSON.stringify({
+					prompt: 'heavy ink, deep blacks, round 1',
+					notes: 'Made it darker.'
+				})
+			}
+		]);
+		expect(run.parsed).toEqual({
+			prompt: 'heavy ink, deep blacks, round 1',
+			notes: 'Made it darker.'
+		});
+		const row = db
+			.select()
+			.from(assets)
+			.all()
+			.find((a) => a.hash === v.runHash);
+		expect(row?.mime).toBe('application/json');
+	});
+
+	it('stores the workflow, model and seed of a picture', async () => {
+		const id = await readyStyle();
+		const picture = current(getStyle(db, owner, id).pictures[0].item)!;
+		const run = record<ImageRunRecord>(picture.runHash);
+		expect(run).toMatchObject({
+			kind: 'image',
+			version: 1,
+			model: 'fake:qwen-image',
+			seed: picture.seed,
+			request: { prompt: picture.text, width: 1024, height: 1024 }
+		});
+		expect(run.workflow).toMatchObject({ fake: true, prompt: picture.text, seed: picture.seed });
+	});
+
+	it('stores one record for the same run, shared by every version it made', async () => {
+		const id = createStyle(db, owner, input);
+		await worker.drain();
+		const hashes = getStyle(db, owner, id).scenes.map((s) => current(s.item)?.runHash);
+		expect(new Set(hashes).size).toBe(1);
+		const run = record<TextRunRecord>(hashes[0]);
+		expect(Object.keys(run.parsed as object)).toEqual(['scenes']);
+		// Key order does not matter: equal records are one asset.
+		const count = () => db.select().from(assets).all().length;
+		const before = count();
+		const reversed = Object.fromEntries(Object.entries(run).reverse()) as TextRunRecord;
+		expect(await putRun(db, reversed)).toBe(hashes[0]);
+		expect(await putRun(db, run)).toBe(hashes[0]);
+		expect(count()).toBe(before);
+		expect(canonicalJson({ b: 1, a: { d: [{ f: 1, e: 2 }], c: 3 } })).toBe(
+			'{"a":{"c":3,"d":[{"e":2,"f":1}]},"b":1}'
+		);
+	});
+
+	it('has none for the user’s own versions and those made before', async () => {
+		const id = await readyStyle();
+		saveText(db, owner, id, 'prompt', '', 'my own prompt');
+		let style = getStyle(db, owner, id);
+		expect(current(style.prompt)?.runHash).toBeNull();
+		expect(current(style.description)?.runHash).toBeNull();
+		db.update(versions).set({ runHash: null }).run();
+		style = getStyle(db, owner, id);
+		const all = [
+			style.prompt,
+			...style.scenes.map((s) => s.item),
+			...style.pictures.map((p) => p.item)
+		];
+		expect(all.flatMap((i) => i.versions).every((v) => v.runHash === null)).toBe(true);
 	});
 });
 

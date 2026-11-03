@@ -7,6 +7,8 @@ import { eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
 import { items, versions } from './db/schema';
 import { prompt } from './prompts';
+import { readAsset } from './assets';
+import type { ImageRunRecord } from './runs';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
 import type { ChatMessage } from './ai/text';
 import { Worker } from './jobs';
@@ -405,6 +407,31 @@ describe('characters', () => {
 		detail = getCharacter(db, owner, id);
 		expect(detail.sheet.every((s) => s.status === 'ok')).toBe(true);
 		expect(image.edits.filter((e) => e.prompt.includes('over one shoulder'))).toHaveLength(2);
+	});
+
+	it('keeps a run record of each sheet view, naming the reference it was drawn from', async () => {
+		const id = await drawn();
+		const [first] = getCharacter(db, owner, id).designs.map((d) => current(d.picture)!);
+		const design = JSON.parse(readAsset(first.runHash!).toString('utf8')) as ImageRunRecord;
+		expect(design).toMatchObject({
+			kind: 'image',
+			seed: first.seed,
+			request: { prompt: first.text }
+		});
+		expect(design.request.images).toBeUndefined();
+		chooseReference(db, owner, id, first.id);
+		requestSheet(db, owner, id);
+		await worker.drain();
+		const view = current(getCharacter(db, owner, id).sheet[0].item)!;
+		const run = JSON.parse(readAsset(view.runHash!).toString('utf8')) as ImageRunRecord;
+		expect(run).toMatchObject({
+			kind: 'image',
+			model: view.model,
+			seed: view.seed,
+			request: { prompt: view.text, images: [first.assetHash] }
+		});
+		expect(run.request.width).toBeUndefined();
+		expect(run.workflow).toMatchObject({ fake: true, prompt: view.text, seed: view.seed });
 	});
 
 	it('draws new designs as soon as they are written', async () => {

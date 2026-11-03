@@ -33,6 +33,7 @@ import { randomSeed } from './ai/image';
 import { isImageModel } from '#lib/models.js';
 import { negativeFor, seriesOfStyle, styleImageModel } from './models';
 import { putImage } from './assets';
+import { imageRunRecord, putRun } from './runs';
 import { askJson } from './prompts/ask';
 import { SAMPLE_SUBJECTS, type SubjectKey } from './samples';
 import { enqueue, type JobHandler } from './jobs';
@@ -520,7 +521,8 @@ export function copyStyle(db: Db, ownerId: number, fromStyleId: number, name: st
 				inputs: version.inputs,
 				notes: version.notes,
 				guidance: version.guidance,
-				model: version.model
+				model: version.model,
+				runHash: version.runHash
 			});
 			if (item.locked) {
 				db.update(itemsTable).set({ locked: true }).where(eq(itemsTable.id, copy.id)).run();
@@ -852,14 +854,25 @@ export function foldMessages(description: string, answers: string) {
 // ---------------------------------------------------------------------------
 // Jobs
 
-const promptRun: StepRun<StyleState> = async ({ ai, signal, state, slots: [{ ref, version }] }) => {
-	const { value: reply, prompt } = await askJson(
+const promptRun: StepRun<StyleState> = async ({
+	db,
+	ai,
+	signal,
+	state,
+	slots: [{ ref, version }]
+}) => {
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'style.prompt',
 		promptMessages(state, version!.guidance),
 		promptReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	return new Map([
 		[
 			slotKey(ref),
@@ -867,7 +880,8 @@ const promptRun: StepRun<StyleState> = async ({ ai, signal, state, slots: [{ ref
 				text: positiveOnly(reply.prompt.trim()),
 				notes: reply.notes.trim(),
 				model: ai.text.name,
-				...prompt
+				...prompt,
+				runHash
 			}
 		]
 	]);
@@ -884,7 +898,11 @@ const scenesRun: StepRun<StyleState> = async ({ db, ai, signal, state, slots }) 
 		.filter((x) => x.version?.status === 'pending')
 		.sort((a, b) => subjectOrder(a.ref) - subjectOrder(b.ref));
 	if (!targets.length) return null;
-	const { value: reply, prompt } = await askJson(
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'style.scenes',
 		sceneMessages(
@@ -894,11 +912,12 @@ const scenesRun: StepRun<StyleState> = async ({ db, ai, signal, state, slots }) 
 		scenesReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	const made = new Map<string, StepOutput>();
 	const missing: string[] = [];
 	for (const { ref } of targets) {
 		const scene = cleanAiScene(ref.key ?? '', reply.scenes[ref.key ?? ''] ?? '');
-		if (scene) made.set(slotKey(ref), { text: scene, model: ai.text.name, ...prompt });
+		if (scene) made.set(slotKey(ref), { text: scene, model: ai.text.name, ...prompt, runHash });
 		else missing.push(ref.key ?? '');
 	}
 	if (!missing.length) return made;
@@ -928,20 +947,17 @@ const pictureRun: StepRun<StyleState> = async ({
 	const model = isImageModel(version!.model)
 		? version!.model
 		: styleImageModel(db, state.ownerId, state.id);
-	const result = await ai.image.generate(
-		{
-			model,
-			prompt,
-			negative: negativeFor(model, seriesOfStyle(db, state.id)),
-			seed,
-			width: SAMPLE_SIZE,
-			height: SAMPLE_SIZE
-		},
-		signal
-	);
+	const request = {
+		prompt,
+		negative: negativeFor(model, seriesOfStyle(db, state.id)),
+		width: SAMPLE_SIZE,
+		height: SAMPLE_SIZE
+	};
+	const result = await ai.image.generate({ model, seed, ...request }, signal);
 	const { hash, thumbHash } = await putImage(db, result.png);
+	const runHash = await putRun(db, imageRunRecord(result, seed, request));
 	return new Map([
-		[slotKey(ref), { text: prompt, assetHash: hash, thumbHash, seed, model: result.model }]
+		[slotKey(ref), { text: prompt, assetHash: hash, thumbHash, seed, model: result.model, runHash }]
 	]);
 };
 
@@ -966,13 +982,12 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const target = jobTarget(db, styleId, versionId);
 	if (!target) return;
 	const state = stateOf(db, target.style);
-	const { value: reply, prompt } = await askJson(
-		ai,
-		'style.questions',
-		questionMessages(state),
-		questionsReply,
-		signal
-	);
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(ai, 'style.questions', questionMessages(state), questionsReply, signal);
+	const runHash = await putRun(db, run);
 	const list = reply.questions.slice(0, 4).map((q) => ({
 		question: q.question.trim(),
 		suggestions: q.suggestions
@@ -984,7 +999,8 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 		text: JSON.stringify(list),
 		inputs: questionInputs(state),
 		model: ai.text.name,
-		...prompt
+		...prompt,
+		runHash
 	});
 };
 
@@ -993,18 +1009,24 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const target = jobTarget(db, styleId, versionId);
 	if (!target) return;
 	const state = stateOf(db, target.style);
-	const { value: reply, prompt } = await askJson(
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'style.fold',
 		foldMessages(state.description, target.version.guidance),
 		foldReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	finishVersion(db, versionId, {
 		text: reply.description.trim(),
 		notes: 'Your answers, folded into the description.',
 		model: ai.text.name,
-		...prompt
+		...prompt,
+		runHash
 	});
 	// The questions were about the old description; they are now answered.
 	const questions = ensureItem(db, target.item.ownerId, styleScope(styleId), questionsSlot.kind);

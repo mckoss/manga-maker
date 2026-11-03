@@ -89,6 +89,8 @@ export interface VersionContent {
 	/** The registered prompt an AI text step made it with, and that prompt's hash (see `askJson`). */
 	promptId?: string;
 	promptHash?: string;
+	/** The run record of the AI step that made it (see `runs.ts`). */
+	runHash?: string | null;
 }
 
 /**
@@ -340,6 +342,8 @@ export interface VersionView {
 	 * never makes it out of date, and is false when no prompt was recorded.
 	 */
 	promptChanged: boolean;
+	/** The asset hash of its run record (what the AI was sent and replied), or null. */
+	runHash: string | null;
 }
 
 export interface ItemView {
@@ -412,7 +416,8 @@ export function describeScope(
 						: Object.keys(v.inputs).length
 							? changedInputs(v.inputs, now).map((name) => labels[name] ?? name)
 							: [UNRECORDED],
-					promptChanged: promptChanged(v.promptId, v.promptHash)
+					promptChanged: promptChanged(v.promptId, v.promptHash),
+					runHash: v.runHash
 				})),
 			pending: unfinished.some((r) => r.jobStatus === 'queued' || r.jobStatus === 'running'),
 			error: failed ? (failed.jobError ?? 'It failed.') : null

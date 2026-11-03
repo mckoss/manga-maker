@@ -26,6 +26,8 @@ import {
 	updateOutdated as updatePlace
 } from './locations';
 import { itemsIn } from './versions';
+import { readAsset } from './assets';
+import type { ImageRunRecord } from './runs';
 
 let db: Db;
 let worker: Worker;
@@ -152,6 +154,22 @@ describe('series logo', () => {
 		for (const img of edit.images)
 			expect(await sharp(img).metadata()).toMatchObject({ width: 1024, height: 1024 });
 		expect(edit.prompt).toContain('the character from image 2 in front of the place in image 1');
+	});
+
+	it('keeps a run record of the logo, naming the pictures it was made from', async () => {
+		const { pictures } = await protagonist();
+		requestLogo(db, owner, seriesId);
+		await worker.drain();
+		const { item } = getLogo(db, owner, seriesId);
+		const logo = item.versions.find((v) => v.id === item.currentId)!;
+		const run = JSON.parse(readAsset(logo.runHash!).toString('utf8')) as ImageRunRecord;
+		expect(run).toMatchObject({
+			kind: 'image',
+			model: logo.model,
+			seed: logo.seed,
+			request: { prompt: logo.text, images: [pictures[0].assetHash] }
+		});
+		expect(run.workflow).toMatchObject({ fake: true, prompt: logo.text, seed: logo.seed });
 	});
 
 	it('stops drawing on request, and goes with the series', async () => {

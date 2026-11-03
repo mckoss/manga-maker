@@ -424,9 +424,34 @@ domain module:
 signal)` (`prompts/ask.ts`): it puts `prompt(id).text` first as the
   system message, passes the id to `TextModel.json` as a trailing option
   (Ollama ignores it; `FakeTextModel` records it in `promptIds`), and
-  returns `{ value, prompt: { promptId, promptHash } }`, which the step
-  spreads into the version it finishes. That one place is where run
-  records (PR 6) and fake replies routed by id (PR 7) plug in.
+  returns `{ value, prompt: { promptId, promptHash }, run }`: the step
+  spreads `prompt` into the version it finishes and stores `run` with
+  `putRun` as its `runHash`. That one place is where fake replies routed
+  by id (PR 7) plug in.
+- Run records (`src/lib/server/runs.ts`): every AI-made version made since
+  v0.26.0 keeps a record of the call that made it, in `versions.run_hash`
+  (null for the user's own versions and older ones). `TextModel.json`
+  returns `{ value, run }`, the run being `{ model, options, messages,
+attempts, parsed }`: `messages` exactly as first sent, each attempt's
+  raw `reply` and, if it could not be used, its parse `error`; a retry's
+  `added` holds the bad reply and the correction message appended before
+  it, so the retry's conversation is `messages` + `added`. Ollama records
+  both attempts; when both fail the job fails and nothing is stored. Image
+  steps record `{ model, seed, request: { prompt, negative?, width?,
+height?, images? }, workflow }`: `workflow` is the filled backend input
+  (`ImageResult.workflow`), `images` the asset hashes of an edit's source
+  pictures, in the order sent (the logo's are the references it squares).
+  A record is `{ kind: 'text' | 'image', version: 1, ... }` serialised as
+  canonical JSON (keys sorted at every level) and stored with
+  `putAsset(db, bytes, 'application/json')`, so the same record is one
+  asset (all the scenes a job writes share one). Records are written by
+  the engine's steps (through their `StepOutput.runHash`) and by every
+  path outside it: the clarify questions and folds in plots and styles,
+  and the logo. A copied style keeps its versions' records. `VersionView`
+  carries `runHash`; `VersionNav` then shows a muted "Details" disclosure
+  that fetches `/assets/{runHash}` when opened and lays the record out
+  (messages, attempts and errors, parsed value; or model, seed, prompt and
+  the workflow), each block scrolling on its own.
 - Versions record `prompt_id` and `prompt_hash` (empty for the user's own,
   pictures, and versions made before). `VersionView.promptChanged` is true
   when a recorded hash differs from the prompt's current one (an unknown

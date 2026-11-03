@@ -13,6 +13,7 @@ import { randomSeed } from './ai/image';
 import { isImageModel } from '#lib/models.js';
 import { negativeFor, pictureModel } from './models';
 import { putImage, readAsset } from './assets';
+import { imageRunRecord, putRun } from './runs';
 import { enqueue, type JobHandler } from './jobs';
 import { references } from './characters';
 import { defaultLocationId, locationReferences } from './locations';
@@ -219,7 +220,10 @@ const logoHandler: JobHandler = async (job, { db, ai, signal }) => {
 		.png()
 		.toBuffer();
 	const images = [square];
+	// The pictures the inputs were made from, in the order sent, for the run record.
+	const sources = [src.protagonist.referenceHash];
 	if (src.place) {
+		sources.unshift(src.place.referenceHash);
 		// The default location, cropped to the same square, goes first: the
 		// edit builds on image 1 and only borrows the character from image 2.
 		images.unshift(
@@ -236,17 +240,21 @@ const logoHandler: JobHandler = async (job, { db, ai, signal }) => {
 		src.place ? src.place.what || src.place.name || 'the series’ main location' : ''
 	);
 	const model = isImageModel(version.model) ? version.model : pictureModel(db, row);
-	const result = await ai.image.edit(
-		{ model, prompt, negative: negativeFor(model, row), images, seed: version.seed ?? 0 },
-		signal
-	);
+	const seed = version.seed ?? 0;
+	const negative = negativeFor(model, row);
+	const result = await ai.image.edit({ model, prompt, negative, images, seed }, signal);
 	const { hash, thumbHash } = await putImage(db, result.png);
+	const runHash = await putRun(
+		db,
+		imageRunRecord(result, seed, { prompt, negative, images: sources })
+	);
 	finishVersion(db, versionId, {
 		text: prompt,
 		assetHash: hash,
 		thumbHash,
 		inputs: inputsOf(src),
-		model: result.model
+		model: result.model,
+		runHash
 	});
 	touchSeries(db, seriesId);
 };
