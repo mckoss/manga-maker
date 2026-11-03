@@ -10,15 +10,11 @@ import {
 	versions,
 	type Character,
 	type ColorMode,
-	type Item,
 	type Series,
 	type Version
 } from './db/schema';
 import { randomSeed } from './ai/image';
-import { isImageModel } from '#lib/models.js';
-import { negativeFor, pictureModel } from './models';
-import { putImage, readAsset } from './assets';
-import { enqueue, type JobHandler } from './jobs';
+import type { JobHandler } from './jobs';
 import { ownedSeries, touchSeries } from './series';
 import {
 	COLOR_MODES,
@@ -31,20 +27,26 @@ import {
 	type DrawingStyle
 } from './styles';
 import {
-	abandonVersion,
 	addVersion,
-	attachJob,
 	currentVersions,
 	deleteScope,
 	describeScope,
 	dropPending,
 	ensureItem,
-	finishVersion,
-	startVersion,
-	VersionError,
 	type Access,
 	type ItemView
 } from './versions';
+import { parseScope, scopeOf, slot, slotKeyOf } from './pipeline/ids';
+import type { Status, StepRun } from './pipeline/registry';
+import {
+	ENTITY_STAGES,
+	entityPipeline,
+	textOf,
+	type EntityStage,
+	type EntityState
+} from './pipeline/entity';
+
+export type { Status };
 
 export class CharacterError extends Error {}
 
@@ -71,7 +73,7 @@ export function isRole(value: string): value is Role {
  * The reference is the user's choice of a design picture; the rest the AI
  * writes or draws, unless the user keeps an item or writes it themselves.
  */
-export const characterScope = (characterId: number) => `character:${characterId}`;
+export const characterScope = scopeOf.character;
 
 /** What the AI writes into the profile from the user's notes and the role. */
 export const PROFILE_KINDS = [
@@ -150,8 +152,8 @@ const designText = (d: Design) =>
 	JSON.stringify({ label: d.label, appearance: d.appearance, outfit: d.outfit });
 
 /** The stages of the pipeline the AI regenerates. */
-export const STAGES = ['profile', 'designs', 'pictures', 'sheet'] as const;
-export type Stage = (typeof STAGES)[number];
+export const STAGES = ENTITY_STAGES;
+export type Stage = EntityStage;
 
 /** Names of inputs, to say why something is out of date. */
 const INPUT_LABELS: Record<string, string> = {
@@ -257,16 +259,12 @@ export function sheetPrompt(
 }
 
 // ---------------------------------------------------------------------------
-// State: the current version of every item, and what each is made from
+// State: the current version of every item, and what each is made from.
+// What each item is made from, where it stands and what is due are the
+// shared entity pipeline's (see pipeline/entity.ts); `flow` below runs it.
 
-interface CharacterState {
+interface CharacterState extends EntityState {
 	character: Character;
-	series: Series;
-	/** The series' style, ready or not: the AI's context for the setting. */
-	context: DrawingStyle | undefined;
-	/** The series' style once it can draw (it has a prompt and a sample). */
-	ready: DrawingStyle | undefined;
-	current: Map<string, Version>;
 }
 
 /** The series' style, which every character picture is drawn in, once it is ready. */
@@ -277,16 +275,21 @@ export function readyStyle(db: Db, owner: Pick<Series, 'styleId'>): DrawingStyle
 
 function stateOf(db: Db, character: Character, owner: Series): CharacterState {
 	const context = owner.styleId ? drawingStyle(db, owner.styleId) : undefined;
+	const scope = characterScope(character.id);
 	return {
+		id: character.id,
+		ownerId: owner.ownerId,
+		scope,
+		name: character.name,
+		seed: character.seed,
 		character,
 		series: owner,
 		context,
 		ready: context?.ready ? context : undefined,
-		current: currentVersions(db, characterScope(character.id))
+		current: currentVersions(db, scope)
 	};
 }
 
-const textOf = (s: CharacterState, slot: string) => s.current.get(slot)?.text ?? '';
 const roleOf = (s: CharacterState) => textOf(s, 'role') || s.character.role;
 
 const profileInputs = (s: CharacterState) => ({ brief: textOf(s, 'brief'), role: roleOf(s) });
@@ -297,120 +300,6 @@ const lookInputs = (s: CharacterState) => ({
 	appearance: textOf(s, 'appearance'),
 	outfit: textOf(s, 'outfit')
 });
-
-const styleInputs = (s: CharacterState) => ({
-	style: String(s.ready?.promptVersionId ?? ''),
-	color: s.ready?.colorMode ?? ''
-});
-
-/** The model chosen when a picture was asked for; for older pending ones, the series'. */
-const modelOf = (db: Db, s: CharacterState, version: Version) =>
-	isImageModel(version.model) ? version.model : pictureModel(db, s.series);
-
-const pictureInputs = (s: CharacterState, key: string) => ({
-	design: textOf(s, `design:${key}`),
-	age: textOf(s, 'age'),
-	...styleInputs(s)
-});
-
-const referenceInputs = (s: CharacterState) => ({ ...lookInputs(s), ...styleInputs(s) });
-
-const sheetInputs = (s: CharacterState) => ({
-	reference: String(s.current.get('reference')?.id ?? ''),
-	color: s.context?.colorMode ?? ''
-});
-
-/** What a new version of an item would be made from; null for the user's own inputs. */
-function inputsFor(s: CharacterState, item: Pick<Item, 'kind' | 'key'>) {
-	if (isProfileKind(item.kind)) return profileInputs(s);
-	if (item.kind === 'design') return lookInputs(s);
-	if (item.kind === 'picture') return pictureInputs(s, item.key);
-	if (item.kind === 'reference') return referenceInputs(s);
-	if (item.kind === 'sheet') return sheetInputs(s);
-	return null;
-}
-
-/** The items each item is made from, as slot keys. */
-function upstreamOf(item: Pick<Item, 'kind' | 'key'>): string[] {
-	if (item.kind === 'design') return [...LOOK_KINDS];
-	if (item.kind === 'picture') return [`design:${item.key}`, 'age'];
-	if (item.kind === 'reference') return [...LOOK_KINDS];
-	if (item.kind === 'sheet') return ['reference'];
-	return [];
-}
-
-/**
- * Where an item stands:
- * - missing: never made;
- * - pending: being made;
- * - outdated: made from inputs that have changed since;
- * - upstream: up to date with its inputs, but an earlier step it is made
- *   from is out of date (and not kept), so it will change once that does;
- * - ok.
- */
-export type Status = 'missing' | 'pending' | 'outdated' | 'upstream' | 'ok';
-
-function statuses(views: Map<string, ItemView>) {
-	const memo = new Map<string, Status>();
-	const view = (slot: string) => views.get(slot);
-	/**
-	 * An earlier step that won't change under what is made from it: kept
-	 * items, and the reference, which only the user chooses (the AI never
-	 * redraws it), so the sheet always follows the reference in use.
-	 */
-	const anchored = (slot: string) =>
-		Boolean(view(slot)?.locked) || (slot === 'reference' && Boolean(view(slot)?.currentId));
-	const status = (slot: string): Status => {
-		const known = memo.get(slot);
-		if (known) return known;
-		const v = view(slot);
-		const [kind, key = ''] = slot.split(':');
-		let result: Status;
-		const current = v?.versions.find((x) => x.id === v.currentId);
-		if (v?.pending) result = 'pending';
-		else if (!current) result = 'missing';
-		else if (current.outOfDate.length) result = 'outdated';
-		else {
-			const changing = upstreamOf({ kind, key }).some((u) => !anchored(u) && status(u) !== 'ok');
-			result = changing ? 'upstream' : 'ok';
-		}
-		memo.set(slot, result);
-		return result;
-	};
-	/** Every earlier step is settled: kept, or up to date. */
-	const settled = (slot: string) => {
-		const [kind, key = ''] = slot.split(':');
-		return upstreamOf({ kind, key }).every((u) => anchored(u) || status(u) === 'ok');
-	};
-	return { status, settled };
-}
-
-/** Slots that can be regenerated now: not kept, missing or out of date, with earlier steps settled. */
-function dueSlots(db: Db, s: CharacterState, stage: Stage): string[] {
-	const views = describeScope(db, characterScope(s.character.id), (i) => inputsFor(s, i), {});
-	const { status, settled } = statuses(views);
-	const due = (slot: string) => {
-		if (views.get(slot)?.locked) return false;
-		const st = status(slot);
-		return (st === 'missing' || st === 'outdated') && settled(slot);
-	};
-	if (stage === 'profile') {
-		if (!textOf(s, 'brief') && !s.character.name) return [];
-		return PROFILE_KINDS.filter((k) => due(k));
-	}
-	if (stage === 'designs') {
-		if (!s.context || !textOf(s, 'appearance')) return [];
-		return DESIGN_KEYS.map((k) => `design:${k}`).filter(due);
-	}
-	if (stage === 'pictures') {
-		if (!s.ready) return [];
-		return DESIGN_KEYS.filter((k) => s.current.get(`design:${k}`))
-			.map((k) => `picture:${k}`)
-			.filter(due);
-	}
-	if (!s.ready || !s.current.get('reference')?.assetHash) return [];
-	return SHEET_VIEWS.map((v) => `sheet:${v.key}`).filter(due);
-}
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -465,7 +354,7 @@ export function references(db: Db, characterIds: number[]): Map<number, Version>
 			)
 		)
 		.all();
-	for (const r of rows) out.set(Number(r.scope.split(':')[1]), r.version);
+	for (const r of rows) out.set(parseScope(r.scope).id, r.version);
 	return out;
 }
 
@@ -483,7 +372,7 @@ export function listCharacters(db: Db, ownerId: number, seriesId: number) {
 	);
 	return cast.map((c) => {
 		const current = currentVersions(db, characterScope(c.id));
-		const has = (slot: string) => Boolean(current.get(slot));
+		const has = (kind: string, key?: string) => Boolean(current.get(slotKeyOf(kind, key)));
 		return {
 			...c,
 			thumb: refs.get(c.id)?.thumbHash ?? null,
@@ -491,10 +380,10 @@ export function listCharacters(db: Db, ownerId: number, seriesId: number) {
 			/** What is still to do to make the character drawable, in order. */
 			todo: [
 				{ step: 'Profile', done: has('personality') && has('appearance') },
-				{ step: 'Designs', done: DESIGN_KEYS.some((k) => has(`design:${k}`)) },
-				{ step: 'Design pictures', done: DESIGN_KEYS.some((k) => has(`picture:${k}`)) },
+				{ step: 'Designs', done: DESIGN_KEYS.some((k) => has('design', k)) },
+				{ step: 'Design pictures', done: DESIGN_KEYS.some((k) => has('picture', k)) },
 				{ step: 'Reference chosen', done: refs.has(c.id) },
-				{ step: 'Character sheet', done: SHEET_VIEWS.some((v) => has(`sheet:${v.key}`)) }
+				{ step: 'Character sheet', done: SHEET_VIEWS.some((v) => has('sheet', v.key)) }
 			]
 		};
 	});
@@ -513,20 +402,14 @@ const emptyView = (kind: string, key = ''): ItemView => ({
 
 export function getCharacter(db: Db, ownerId: number, characterId: number) {
 	const s = ownedState(db, ownerId, characterId);
-	const views = describeScope(
-		db,
-		characterScope(characterId),
-		(item) => inputsFor(s, item),
-		INPUT_LABELS
-	);
-	const { status } = statuses(views);
-	const view = (kind: string, key = '') =>
-		views.get(key ? `${kind}:${key}` : kind) ?? emptyView(kind, key);
+	// One scan of the scope says where every item stands and what is due.
+	const snap = flow.describe(db, s, INPUT_LABELS);
+	const { views, status } = snap;
+	const view = (kind: string, key = '') => views.get(slotKeyOf(kind, key)) ?? emptyView(kind, key);
 	const all = [...views.values()];
-	const due = Object.fromEntries(STAGES.map((st) => [st, dueSlots(db, s, st).length])) as Record<
-		Stage,
-		number
-	>;
+	const due = Object.fromEntries(
+		STAGES.map((st) => [st, flow.dueSlots(s, st, snap).length])
+	) as Record<Stage, number>;
 	// The AI's latest notes on the profile.
 	const notes =
 		PROFILE_KINDS.map((k) => s.current.get(k))
@@ -542,14 +425,14 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 		view: v.key,
 		label: v.label,
 		item: view('sheet', v.key),
-		status: status(`sheet:${v.key}`)
+		status: status(slotKeyOf('sheet', v.key))
 	}));
 	const designs = DESIGN_KEYS.map((key) => ({
 		key,
 		design: view('design', key),
-		designStatus: status(`design:${key}`),
+		designStatus: status(slotKeyOf('design', key)),
 		picture: view('picture', key),
-		pictureStatus: status(`picture:${key}`)
+		pictureStatus: status(slotKeyOf('picture', key))
 	}));
 	/** Where a step of the pipeline stands, over its items. */
 	const summary = (slots: string[]) => {
@@ -583,10 +466,10 @@ export function getCharacter(db: Db, ownerId: number, characterId: number) {
 		flow: {
 			notes: summary(['brief', 'role']),
 			profile: summary([...PROFILE_KINDS]),
-			designs: summary(DESIGN_KEYS.map((k) => `design:${k}`)),
-			pictures: summary(DESIGN_KEYS.map((k) => `picture:${k}`)),
+			designs: summary(DESIGN_KEYS.map((k) => slotKeyOf('design', k))),
+			pictures: summary(DESIGN_KEYS.map((k) => slotKeyOf('picture', k))),
 			reference: summary(['reference']),
-			sheet: summary(SHEET_VIEWS.map((v) => `sheet:${v.key}`))
+			sheet: summary(SHEET_VIEWS.map((v) => slotKeyOf('sheet', v.key)))
 		},
 		developing: profileItems.some((p) => p.item.pending),
 		designing: designs.some((d) => d.design.pending),
@@ -598,16 +481,6 @@ export type CharacterDetail = ReturnType<typeof getCharacter>;
 
 // ---------------------------------------------------------------------------
 // Commands
-
-/** Turn a VersionError into a CharacterError the page shows. */
-function run<T>(fn: () => T): T {
-	try {
-		return fn();
-	} catch (e) {
-		if (e instanceof VersionError) throw new CharacterError(e.message);
-		throw e;
-	}
-}
 
 const item = (db: Db, s: CharacterState, kind: string, key = '') =>
 	ensureItem(db, s.series.ownerId, characterScope(s.character.id), kind, key);
@@ -721,7 +594,7 @@ export function saveText(
 	addVersion(
 		db,
 		it,
-		{ origin: 'user', text: final, inputs: inputsFor(s, it) ?? {} },
+		{ origin: 'user', text: final, inputs: flow.inputsFor(s, slot(kind)) ?? {} },
 		generated ? { keep } : {}
 	);
 	if (kind === 'name' || kind === 'role') syncCharacter(db, characterId);
@@ -747,7 +620,7 @@ export function saveDesign(
 	if (!clean.appearance) throw new CharacterError('Describe how this design looks.');
 	const it = item(db, s, 'design', key);
 	const text = designText(clean);
-	if (text === textOf(s, `design:${key}`)) {
+	if (text === textOf(s, slotKeyOf('design', key))) {
 		if (it.locked !== keep) {
 			db.update(items).set({ locked: keep }).where(eq(items.id, it.id)).run();
 			if (keep) dropPending(db, [it.id]);
@@ -763,92 +636,50 @@ interface Start {
 	guidance?: string;
 	/** A picture's seed; by default the current one, or a new one if that is up to date. */
 	seed?: number | null;
-	/** Stages to carry on with once this one finishes (see `updateOutdated`). */
 	/** A picture's image model, chosen with its Regenerate button; else the series'. */
 	model?: string;
+	/** Stages to carry on with once this one finishes (see `updateOutdated`). */
 	cascade?: Stage[];
 }
 
 function startProfile(db: Db, s: CharacterState, kinds: ProfileKind[], opts: Start = {}): number {
-	if (!kinds.length) return 0;
-	const started = run(() =>
-		kinds.map((k) => [k, startVersion(db, item(db, s, k), { guidance: opts.guidance }).id] as const)
-	);
-	const job = enqueue(db, s.series.ownerId, 'character.develop', {
-		characterId: s.character.id,
-		versionIds: Object.fromEntries(started),
-		guidance: opts.guidance?.trim() ?? '',
-		cascade: opts.cascade ?? []
-	});
-	attachJob(
+	return flow.start(
 		db,
-		started.map(([, id]) => id),
-		job.id
+		s,
+		'profile',
+		kinds.map((k) => slot(k)),
+		opts
 	);
-	return started.length;
 }
 
 function startDesigns(db: Db, s: CharacterState, keys: DesignKey[], opts: Start = {}): number {
 	if (!keys.length) return 0;
 	if (!s.context) throw new CharacterError('Describe the series’ style first.');
 	if (!textOf(s, 'appearance')) throw new CharacterError('Describe how the character looks first.');
-	const started = run(() =>
-		keys.map(
-			(k) =>
-				[k, startVersion(db, item(db, s, 'design', k), { guidance: opts.guidance }).id] as const
-		)
-	);
-	const job = enqueue(db, s.series.ownerId, 'character.designs', {
-		characterId: s.character.id,
-		versionIds: Object.fromEntries(started),
-		guidance: opts.guidance?.trim() ?? '',
-		cascade: opts.cascade ?? []
-	});
-	attachJob(
+	return flow.start(
 		db,
-		started.map(([, id]) => id),
-		job.id
+		s,
+		'designs',
+		keys.map((k) => slot('design', k)),
+		opts
 	);
-	return started.length;
 }
 
 const NO_STYLE = 'Draw at least one sample picture of the series’ style before drawing characters.';
 
-/**
- * Draw design pictures. Each keeps the seed of its current version when its
- * design or the style changed, so the new picture shows what the change
- * did; redrawing an up-to-date picture uses a new seed.
- */
+/** Draw design pictures (see the pictures stage for how seeds are kept). */
 function startPictures(db: Db, s: CharacterState, keys: DesignKey[], opts: Start = {}): number {
 	if (!keys.length) return 0;
 	if (!s.ready) throw new CharacterError(NO_STYLE);
-	const views = describeScope(db, characterScope(s.character.id), (i) => inputsFor(s, i), {});
-	return run(
-		() =>
-			keys.map((key) => {
-				if (!s.current.get(`design:${key}`)) throw new CharacterError('Write the design first.');
-				const current = s.current.get(`picture:${key}`);
-				const view = views.get(`picture:${key}`);
-				const outOfDate = view?.versions.find((v) => v.id === view.currentId)?.outOfDate.length;
-				const seed =
-					opts.seed ??
-					(current && !outOfDate
-						? randomSeed()
-						: (current?.seed ?? s.character.seed + DESIGN_KEYS.indexOf(key)));
-				const version = startVersion(db, item(db, s, 'picture', key), {
-					seed,
-					guidance: opts.guidance,
-					model: pictureModel(db, s.series, opts.model)
-				});
-				const job = enqueue(db, s.series.ownerId, 'character.picture', {
-					characterId: s.character.id,
-					versionId: version.id,
-					key,
-					cascade: opts.cascade ?? []
-				});
-				attachJob(db, [version.id], job.id);
-				return version;
-			}).length
+	if (keys.some((k) => !s.current.get(slotKeyOf('design', k)))) {
+		throw new CharacterError('Write the design first.');
+	}
+	return flow.start(
+		db,
+		s,
+		'pictures',
+		keys.map((k) => slot('picture', k)),
+		opts
 	);
 }
 
@@ -858,23 +689,12 @@ function startSheet(db: Db, s: CharacterState, views: SheetView[], opts: Start =
 	if (!s.current.get('reference')?.assetHash) {
 		throw new CharacterError('Choose a reference picture first.');
 	}
-	const seed = opts.seed ?? randomSeed();
-	return run(
-		() =>
-			views.map((view, i) => {
-				const version = startVersion(db, item(db, s, 'sheet', view), {
-					seed: seed + i,
-					guidance: opts.guidance,
-					model: pictureModel(db, s.series, opts.model)
-				});
-				const job = enqueue(db, s.series.ownerId, 'character.sheet', {
-					characterId: s.character.id,
-					versionId: version.id,
-					view
-				});
-				attachJob(db, [version.id], job.id);
-				return version;
-			}).length
+	return flow.start(
+		db,
+		s,
+		'sheet',
+		views.map((v) => slot('sheet', v)),
+		opts
 	);
 }
 
@@ -891,35 +711,14 @@ export function updateOutdated(
 	stages: readonly Stage[] = STAGES
 ): number {
 	ownedCharacter(db, ownerId, characterId);
-	return advance(db, characterId, stages);
+	return flow.advance(db, characterId, stages);
 }
 
-/** The stages after one, to carry a cascade on without redoing that stage. */
-const after = (stage: Stage, cascade: Stage[]) =>
-	cascade.filter((st) => STAGES.indexOf(st) > STAGES.indexOf(stage));
-
-function advance(db: Db, characterId: number, stages: readonly Stage[]): number {
-	const s = loadState(db, characterId);
-	if (!s) return 0;
-	const cascade = [...stages];
-	let started = 0;
-	for (const stage of stages) {
-		const due = dueSlots(db, s, stage);
-		const keys = due.map((slot) => slot.split(':')[1] ?? slot);
-		if (stage === 'profile') started += startProfile(db, s, due as ProfileKind[], { cascade });
-		if (stage === 'designs') started += startDesigns(db, s, keys as DesignKey[], { cascade });
-		if (stage === 'pictures') started += startPictures(db, s, keys as DesignKey[], { cascade });
-		if (stage === 'sheet') {
-			// Each view keeps the guidance it was last drawn with.
-			for (const view of keys as SheetView[]) {
-				started += startSheet(db, s, [view], {
-					guidance: s.current.get(`sheet:${view}`)?.guidance ?? ''
-				});
-			}
-		}
-	}
-	return started;
-}
+/** Which items are kept, from one scan of the scope. */
+const keptIn = (db: Db, characterId: number) => {
+	const views = describeScope(db, characterScope(characterId), () => null, {});
+	return (kind: string, key?: string) => Boolean(views.get(slotKeyOf(kind, key))?.locked);
+};
 
 /** Ask the AI to rewrite profile fields (all not kept, or the ones given), with the user's guidance. */
 export function requestProfile(
@@ -929,8 +728,8 @@ export function requestProfile(
 	opts: { kinds?: ProfileKind[]; guidance?: string } = {}
 ): number {
 	const s = ownedState(db, ownerId, characterId);
-	const views = describeScope(db, characterScope(characterId), () => null, {});
-	const kinds = opts.kinds ?? PROFILE_KINDS.filter((k) => !views.get(k)?.locked);
+	const kept = keptIn(db, characterId);
+	const kinds = opts.kinds ?? PROFILE_KINDS.filter((k) => !kept(k));
 	if (!kinds.length) throw new CharacterError('Every field is locked.');
 	return startProfile(db, s, kinds, { guidance: opts.guidance });
 }
@@ -946,8 +745,8 @@ export function requestDesigns(
 	opts: { keys?: DesignKey[]; guidance?: string } = {}
 ): number {
 	const s = ownedState(db, ownerId, characterId);
-	const views = describeScope(db, characterScope(characterId), () => null, {});
-	const keys = opts.keys ?? DESIGN_KEYS.filter((k) => !views.get(`design:${k}`)?.locked);
+	const kept = keptIn(db, characterId);
+	const keys = opts.keys ?? DESIGN_KEYS.filter((k) => !kept('design', k));
 	if (!keys.length) throw new CharacterError('Every design is locked.');
 	return startDesigns(db, s, keys, { guidance: opts.guidance, cascade: ['pictures'] });
 }
@@ -961,10 +760,10 @@ export function requestPictures(
 ): number {
 	const s = ownedState(db, ownerId, characterId);
 	if (!s.ready) throw new CharacterError(NO_STYLE);
-	const views = describeScope(db, characterScope(characterId), () => null, {});
+	const kept = keptIn(db, characterId);
 	const keys =
 		opts.keys ??
-		DESIGN_KEYS.filter((k) => s.current.get(`design:${k}`) && !views.get(`picture:${k}`)?.locked);
+		DESIGN_KEYS.filter((k) => s.current.get(slotKeyOf('design', k)) && !kept('picture', k));
 	return startPictures(db, s, keys, {
 		guidance: opts.guidance,
 		seed: opts.seed,
@@ -988,11 +787,11 @@ export function requestSheet(
 ): number {
 	const s = ownedState(db, ownerId, characterId);
 	if (only) return startSheet(db, s, [only], { guidance, seed, model });
-	const views = describeScope(db, characterScope(characterId), () => null, {});
+	const kept = keptIn(db, characterId);
 	return startSheet(
 		db,
 		s,
-		SHEET_VIEWS.map((v) => v.key).filter((v) => !views.get(`sheet:${v}`)?.locked),
+		SHEET_VIEWS.map((v) => v.key).filter((v) => !kept('sheet', v)),
 		{ guidance }
 	);
 }
@@ -1179,41 +978,42 @@ export function developMessages(
 	];
 }
 
-const developHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { characterId, versionIds, guidance, cascade } = job.payload as {
-		characterId: number;
-		versionIds: Partial<Record<ProfileKind, number>>;
-		guidance: string;
-		cascade: Stage[];
-	};
-	const s = loadState(db, characterId);
-	if (!s) return; // deleted meanwhile
-	const rewrite = PROFILE_KINDS.filter((k) => versionIds[k] !== undefined);
+const developRun: StepRun<CharacterState> = async ({
+	db,
+	ai,
+	signal,
+	state: s,
+	slots,
+	guidance
+}) => {
+	const rewrite = PROFILE_KINDS.filter((k) => slots.some((x) => x.ref.kind === k));
 	const reply = await ai.text.json(
 		developMessages(s, castOf(db, s), rewrite, guidance),
 		developReply,
 		signal
 	);
-	const inputs = profileInputs(s);
-	for (const kind of rewrite) {
-		const id = versionIds[kind]!;
-		const raw = reply[kind].trim();
-		const text = kind === 'appearance' || kind === 'outfit' ? positiveOnly(raw) : raw;
-		if (text)
-			finishVersion(db, id, { text, inputs, notes: reply.notes.trim(), model: ai.text.name });
-		else abandonVersion(db, id);
-	}
-	// The first name a character gets is canonical: the plot and dialogue use
-	// it, so the AI doesn't rename them later unless the user unlocks it.
-	if (rewrite.includes('name')) {
-		const name = ensureItem(db, s.series.ownerId, characterScope(characterId), 'name');
+	return new Map(
+		rewrite.map((kind) => {
+			const raw = reply[kind].trim();
+			const text = kind === 'appearance' || kind === 'outfit' ? positiveOnly(raw) : raw;
+			return [kind, text ? { text, notes: reply.notes.trim(), model: ai.text.name } : null];
+		})
+	);
+};
+
+/**
+ * The first name a character gets is canonical: the plot and dialogue use
+ * it, so the AI doesn't rename them later unless the user unlocks it.
+ */
+function afterDevelop(db: Db, s: CharacterState, rewritten: { kind: string }[]): void {
+	if (rewritten.some((r) => r.kind === 'name')) {
+		const name = item(db, s, 'name');
 		if (name.currentVersionId !== null && !name.locked) {
 			db.update(items).set({ locked: true }).where(eq(items.id, name.id)).run();
 		}
 	}
-	syncCharacter(db, characterId);
-	advance(db, characterId, after('profile', cascade));
-};
+	syncCharacter(db, s.character.id);
+}
 
 const DESIGNS_SYSTEM = `You are an experienced manga character designer. You propose clearly different visual designs for one character, so the user can pick the look they like best.
 
@@ -1286,19 +1086,18 @@ export function designMessages(s: CharacterState, count: number, others: Design[
  * Write the requested designs, and record which traits they vary. A short
  * reply leaves the rest on the current look.
  */
-const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { characterId, versionIds, guidance, cascade } = job.payload as {
-		characterId: number;
-		versionIds: Partial<Record<DesignKey, number>>;
-		guidance: string;
-		cascade: Stage[];
-	};
-	const s = loadState(db, characterId);
-	if (!s) return; // deleted meanwhile
+const designsRun: StepRun<CharacterState> = async ({
+	db,
+	ai,
+	signal,
+	state: s,
+	slots,
+	guidance
+}) => {
 	if (!s.context) throw new Error('The series has no style.');
-	const keys = DESIGN_KEYS.filter((k) => versionIds[k] !== undefined);
-	const others = DESIGN_KEYS.filter((k) => versionIds[k] === undefined)
-		.map((k) => parseDesign(textOf(s, `design:${k}`)))
+	const keys = DESIGN_KEYS.filter((k) => slots.some((x) => x.ref.key === k));
+	const others = DESIGN_KEYS.filter((k) => !keys.includes(k))
+		.map((k) => parseDesign(textOf(s, slotKeyOf('design', k))))
 		.filter((d): d is Design => d !== null);
 	const reply = await ai.text.json(
 		designMessages(s, keys.length, others, guidance),
@@ -1308,103 +1107,50 @@ const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const clean = (list: string[]) => list.map((t) => t.trim()).filter(Boolean);
 	db.update(characters)
 		.set({ designTraits: { fixed: clean(reply.fixed), free: clean(reply.free) } })
-		.where(eq(characters.id, characterId))
+		.where(eq(characters.id, s.character.id))
 		.run();
-	const inputs = lookInputs(s);
-	keys.forEach((key, i) => {
-		const d = reply.designs[i];
-		finishVersion(db, versionIds[key]!, {
-			text: designText({
+	return new Map(
+		keys.map((key, i) => {
+			const d = reply.designs[i];
+			const text = designText({
 				label: d?.label.trim() || 'Current look',
 				appearance: positiveOnly(d?.appearance.trim() || textOf(s, 'appearance')),
 				outfit: positiveOnly(d?.outfit.trim() || textOf(s, 'outfit'))
-			}),
-			inputs,
-			model: ai.text.name
-		});
-	});
-	advance(db, characterId, after('designs', cascade));
+			});
+			return [slotKeyOf('design', key), { text, model: ai.text.name }];
+		})
+	);
 };
 
-const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { characterId, versionId, key, cascade } = job.payload as {
-		characterId: number;
-		versionId: number;
-		key: DesignKey;
-		cascade: Stage[];
-	};
-	const s = loadState(db, characterId);
-	const version = db.select().from(versions).where(eq(versions.id, versionId)).get();
-	if (!s || version?.status !== 'pending') return; // deleted or superseded meanwhile
-	if (!s.ready) throw new Error('The series’ style is not ready.');
-	const design = parseDesign(textOf(s, `design:${key}`));
-	if (!design) throw new Error('The design is missing.');
-	const prompt = characterPrompt(
-		s.ready,
-		{ age: textOf(s, 'age'), appearance: design.appearance, outfit: design.outfit },
-		version.guidance
-	);
-	const inputs = pictureInputs(s, key);
-	const model = modelOf(db, s, version);
-	const result = await ai.image.generate(
-		{
-			model,
-			prompt,
-			negative: negativeFor(model, s.series),
-			seed: version.seed ?? 0,
-			...CANDIDATE_SIZE
-		},
-		signal
-	);
-	const { hash, thumbHash } = await putImage(db, result.png);
-	finishVersion(db, versionId, {
-		text: prompt,
-		assetHash: hash,
-		thumbHash,
-		inputs,
-		model: result.model
-	});
-	advance(db, characterId, after('pictures', cascade));
-};
+// ---------------------------------------------------------------------------
+// The pipeline
 
-const sheetHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { characterId, versionId, view } = job.payload as {
-		characterId: number;
-		versionId: number;
-		view: SheetView;
-	};
-	const s = loadState(db, characterId);
-	const version = db.select().from(versions).where(eq(versions.id, versionId)).get();
-	if (!s || version?.status !== 'pending') return; // deleted or superseded meanwhile
-	const reference = s.current.get('reference');
-	if (!reference?.assetHash) throw new Error('The reference picture is missing.');
-	const colorMode = s.context?.colorMode ?? 'bw';
-	const prompt = sheetPrompt(colorMode, view, version.guidance, textOf(s, 'age'));
-	const inputs = sheetInputs(s);
-	const model = modelOf(db, s, version);
-	const result = await ai.image.edit(
-		{
-			model,
-			prompt,
-			negative: negativeFor(model, s.series),
-			images: [readAsset(reference.assetHash)],
-			seed: version.seed ?? 0
-		},
-		signal
-	);
-	const { hash, thumbHash } = await putImage(db, result.png);
-	finishVersion(db, versionId, {
-		text: prompt,
-		assetHash: hash,
-		thumbHash,
-		inputs,
-		model: result.model
-	});
-};
+const flow = entityPipeline<CharacterState>({
+	domain: 'character',
+	load: loadState,
+	error: (message) => new CharacterError(message),
+	labels: INPUT_LABELS,
+	profileKinds: PROFILE_KINDS,
+	lookKinds: LOOK_KINDS,
+	profileInputs,
+	designKeys: DESIGN_KEYS,
+	sheetViews: SHEET_VIEWS.map((v) => v.key),
+	pictureSize: CANDIDATE_SIZE,
+	develop: developRun,
+	designs: designsRun,
+	afterDevelop,
+	picturePrompt: (s, key, guidance) => {
+		const design = parseDesign(textOf(s, slotKeyOf('design', key)));
+		if (!design) throw new Error('The design is missing.');
+		return characterPrompt(
+			s.ready,
+			{ age: textOf(s, 'age'), appearance: design.appearance, outfit: design.outfit },
+			guidance
+		);
+	},
+	sheetPrompt: (colorMode: ColorMode, view, guidance, what) =>
+		sheetPrompt(colorMode, view as SheetView, guidance, what)
+});
 
-export const characterJobHandlers: Record<string, JobHandler> = {
-	'character.develop': developHandler,
-	'character.designs': designsHandler,
-	'character.picture': pictureHandler,
-	'character.sheet': sheetHandler
-};
+/** Job kinds: character.develop, character.designs, character.picture, character.sheet. */
+export const characterJobHandlers: Record<string, JobHandler> = flow.handlers();

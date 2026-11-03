@@ -56,10 +56,11 @@ import {
 	type ElementKind,
 	type StructureKey
 } from '#lib/structures.js';
+import { scopeOf } from './pipeline/ids';
 
 export class PlotError extends Error {}
 
-export const chapterScope = (chapterId: number) => `chapter:${chapterId}`;
+export const chapterScope = scopeOf.chapter;
 
 export const PLOT_STAGES = ['structure', 'elements', 'beats', 'review'] as const;
 export type PlotStage = (typeof PLOT_STAGES)[number];

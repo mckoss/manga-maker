@@ -11,6 +11,7 @@ import {
 } from './db/schema';
 import { deleteScope } from './versions';
 import { copyStyle, createStyle, deleteStyle, listStyles, type StyleInput } from './styles';
+import { parseScope, scopeOf } from './pipeline/ids';
 
 export class SeriesError extends Error {}
 
@@ -27,7 +28,7 @@ export function isReadingDirection(value: string): value is ReadingDirection {
 export type StyleStatus = 'none' | 'started' | 'ready';
 
 /** The scope of the series' own items, such as its logo. */
-export const seriesScope = (seriesId: number) => `series:${seriesId}`;
+export const seriesScope = scopeOf.series;
 export const LOGO_KIND = 'logo';
 
 /** Each series' current logo thumbnail, by series id. */
@@ -42,7 +43,7 @@ function logoThumbs(db: Db, seriesIds: number[]): Map<number, string> {
 	return new Map(
 		rows
 			.filter((r): r is { scope: string; thumb: string } => Boolean(r.thumb))
-			.map((r) => [Number(r.scope.split(':')[1]), r.thumb])
+			.map((r) => [parseScope(r.scope).id, r.thumb])
 	);
 }
 
@@ -148,21 +149,21 @@ export function deleteSeries(db: Db, ownerId: number, seriesId: number): void {
 			.from(characters)
 			.where(eq(characters.seriesId, seriesId))
 			.all()) {
-			deleteScope(db, `character:${id}`);
+			deleteScope(db, scopeOf.character(id));
 		}
 		for (const { id } of db
 			.select({ id: locations.id })
 			.from(locations)
 			.where(eq(locations.seriesId, seriesId))
 			.all()) {
-			deleteScope(db, `location:${id}`);
+			deleteScope(db, scopeOf.location(id));
 		}
 		for (const { id } of db
 			.select({ id: chapters.id })
 			.from(chapters)
 			.where(eq(chapters.seriesId, seriesId))
 			.all()) {
-			deleteScope(db, `chapter:${id}`);
+			deleteScope(db, scopeOf.chapter(id));
 		}
 		deleteScope(db, seriesScope(seriesId));
 		db.delete(series).where(eq(series.id, seriesId)).run();

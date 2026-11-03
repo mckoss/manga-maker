@@ -31,6 +31,7 @@ import {
 	type Access,
 	type ItemView
 } from './versions';
+import { scopeOf } from './pipeline/ids';
 
 export class StyleError extends Error {}
 
@@ -210,7 +211,7 @@ function cleanAiScene(subjectKey: string, scene: string): string {
 // ---------------------------------------------------------------------------
 // State
 
-export const styleScope = (styleId: number) => `style:${styleId}`;
+export const styleScope = scopeOf.style;
 
 /** Everything a style's next prompt, scene or picture would be made from. */
 interface StyleState {

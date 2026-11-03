@@ -340,6 +340,62 @@ shows **Out of date** with the reason. Versions can be deleted one at a time,
 or all but the current one. A regeneration can carry the user's **guidance**
 for that one round.
 
+### Pipeline registry and engine
+
+The plumbing every pipeline needs — what each item is made from, where it
+stands, what is due, starting versions and their jobs, finishing them and
+carrying a cascade on — lives once in `src/lib/server/pipeline/`, not in each
+domain module:
+
+- `ids.ts`: typed scopes (`scopeOf.character(12)` → `"character:12"`,
+  `parseScope`) and slots (`slot('design', '3')`, `parseSlot`, `slotKey`),
+  validated, instead of template literals and `split(':')`.
+- `registry.ts`: the declarative shape. A **pipeline** is a domain, a `load`
+  for its state, input labels and an ordered list of **stages**. Each stage
+  names the item kinds it makes, its fan-out (`slots`), each slot's
+  `inputs` and `upstream` slots, an optional `ready` gate, `anchored` rule,
+  `prepare` hook (seeds, models, guidance) and **job** (`per: 'stage'` or
+  `'slot'`, with a `run` that returns content by slot, or null to drop it),
+  whether it `cascades` (default yes) and its `staleness` (`'transitive'`
+  by default; `'own'` ignores earlier steps), and `afterFinish`.
+- `engine.ts`: one generic engine for any pipeline. `describe` scans the
+  scope once and memoises statuses (missing, pending, outdated, upstream,
+  ok); kept items and anchored ones (a chosen reference) count as settled
+  and are never due. `dueSlots`, `start` (pending versions plus queued jobs,
+  payloads unchanged from before), `advance` (stage by stage, waiting on
+  what was just started) and `handlers` (finish only while still pending,
+  current only where not locked; abandon on null; `afterFinish`; carry the
+  cascade on unless `cascades: false`).
+- `entity.ts`: `entityPipeline(config)`, the profile → designs → pictures →
+  reference → sheet pipeline, parameterised by the domain's data (profile
+  and look kinds, design keys, sheet views, picture size) and hooks (text
+  jobs, prompts, `afterDevelop`). Characters run on it; prompts stay in the
+  domain module.
+
+The refactor lands in small, behaviour-preserving PRs:
+
+1. Typed ids, the registry and engine, and characters on `entityPipeline`
+   (v0.23.1).
+2. Locations on the same `entityPipeline` factory.
+3. Plots: slots and upstream as functions of the state, `ready` gates, the
+   cast sync as `afterFinish`. The questions → answers → fold "clarify" flow
+   that plots and styles share stays a helper outside the engine.
+4. Styles on the engine with `cascades: false` everywhere: never
+   auto-rerender, but keep transitive "out of date"/"upstream" highlighting
+   so users regenerate by hand.
+5. Prompt registry: `definePrompt(id, text)` → `{ id, text, hash }` with
+   namespaced ids (`character.develop`); versions gain `prompt_id` and
+   `prompt_hash`, and show a soft "made with an earlier version of the
+   prompt" note that never counts as out of date (text steps only).
+6. Run records: `TextModel.json` returns `{ value, run }` (messages, raw
+   replies, parse errors and retries, parsed value); images record the
+   filled workflow, model and seed. Stored as a content-addressed JSON asset
+   (`putAsset`, `versions.run_hash`), shown in a small Details disclosure in
+   `VersionNav`.
+7. Fake text replies routed by prompt id, replacing substring matching.
+
+The logo stays outside the engine.
+
 ### Styles as built
 
 A style is a pipeline of items, shown in the order they are made:
