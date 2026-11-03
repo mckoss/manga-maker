@@ -14,7 +14,7 @@
 	const asset = (hash: string) => resolve('/assets/[hash]', { hash });
 </script>
 
-<div class="picture" class:stale={shown && shown.outOfDate.length}>
+<div class="picture" class:unselected={shown && shown.id !== item.currentId}>
 	{#if item.pending}
 		<div class="placeholder"><span class="spinner"></span> Generating…</div>
 	{:else if shown?.assetHash && shown.thumbHash}
@@ -55,7 +55,7 @@
 		color: var(--muted);
 		overflow-wrap: anywhere;
 	}
-	.stale img {
+	.unselected img {
 		opacity: 0.45;
 	}
 </style>

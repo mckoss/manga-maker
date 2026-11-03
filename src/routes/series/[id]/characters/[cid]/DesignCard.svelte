@@ -58,7 +58,7 @@
 	const save = new AutoSave();
 </script>
 
-<article class="design" class:stale={shownPicture?.outOfDate.length}>
+<article class="design" class:unselected={shownPicture && shownPicture.id !== picture.currentId}>
 	<div class="words">
 		<h3>Design words</h3>
 		<Regenerate
@@ -210,7 +210,7 @@
 		font-size: 0.85rem;
 		text-align: center;
 	}
-	.stale img {
+	.unselected img {
 		opacity: 0.5;
 	}
 	.caption {

@@ -27,7 +27,7 @@
 	const asset = (hash: string) => resolve('/assets/[hash]', { hash });
 </script>
 
-<figure class:stale={shown?.outOfDate.length}>
+<figure class:unselected={shown && shown.id !== item.currentId}>
 	{#if item.pending}
 		<div class="placeholder"><span class="spinner"></span> Generating…</div>
 	{:else if shown?.assetHash && shown.thumbHash}
@@ -79,7 +79,7 @@
 		color: var(--muted);
 		font-size: 0.85rem;
 	}
-	.stale img {
+	.unselected img {
 		opacity: 0.5;
 	}
 	.caption {
