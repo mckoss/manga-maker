@@ -159,6 +159,35 @@ Layered, cheapest first:
    a background job on the GPU.
 5. **Vision-model QA** on every candidate, as above.
 
+### Backlog: precise staging, as a refine pass
+
+**Fast production comes first:** panels are generated straight from prompts
+and references. Precise control is a later, optional pass that refines an
+image already generated, never a required step before generating one.
+
+- **Posable figure:** a rigged 3D mannequin in the browser (three.js) to
+  set a character's pose exactly. It renders a pose skeleton (and depth) as a
+  guide image for the model, with the character's reference supplying
+  identity.
+- **3D scene block-out:** crude primitives (boxes, planes, cylinders) for a
+  location's buildings, walls and furniture, plus the posed mannequins, with
+  a real camera: position, angle, height and field of view. Renders depth,
+  outline and pose guides; the location's reference supplies the look. The AI
+  could stage it from a description ("Jun by the door, low angle").
+  Converting a generated location picture into real 3D is out of scope at
+  first: a depth estimate from one image only allows small camera moves.
+- **Line drawings before rendering:** an optional pencils stage, to judge
+  pose and composition without tone and lighting, then render with the
+  approved lines as an edge guide so the composition holds. It saves
+  attention, not compute (a line drawing costs as much as a full render),
+  and each extra pass is a chance for identity to drift, so the render takes
+  the reference and the lines together.
+- **Spike before building:** test that the models obey pose, depth and edge
+  guides with our characters: Qwen-Image-Edit 2509 accepts these maps as
+  input images, and Qwen-Image 2.1 has a union ControlNet
+  (`qwen_image_2.1_fun_controlnet_union`, not downloaded yet). Then build
+  in order: mannequin and camera, block-out scenes, line-drawing pass.
+
 ### Image runtime: ComfyUI
 
 The app drives a local **ComfyUI** server through its HTTP API
@@ -371,6 +400,9 @@ and restarts on failure, with hot reload intact:
 6. **Polish**: onboarding, guidance copy, admin tools, backups.
 7. **Public launch**: production service, public edge (still undecided),
    monitoring.
+8. **Refinement (backlog)**: precise staging for images already generated:
+   posable 3D mannequins, 3D scene block-out with camera and field of view,
+   an optional line-drawing pass (see "Backlog: precise staging" above).
 
 Each milestone ends usable on the tailnet.
 
