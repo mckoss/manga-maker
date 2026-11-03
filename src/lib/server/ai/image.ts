@@ -1,3 +1,7 @@
+import type { ImageModelId } from '#lib/models.js';
+
+export { IMAGE_MODELS, type ImageModelId } from '#lib/models.js';
+
 /** A text-to-image request. */
 export interface ImageRequest {
 	model: ImageModelId;
@@ -13,6 +17,8 @@ export interface ImageRequest {
  * "image 1", "image 2" and "image 3".
  */
 export interface EditRequest {
+	/** The chosen family; those that can't edit use Qwen-Image-Edit 2509. */
+	model?: ImageModelId;
 	prompt: string;
 	images: Buffer[];
 	seed: number;
@@ -20,21 +26,11 @@ export interface EditRequest {
 
 export interface ImageResult {
 	png: Buffer;
+	/** The exact model that drew it (a key of MODEL_LABELS). */
+	model: string;
 	/** The exact backend input, kept with the image so it can be reproduced. */
 	workflow: unknown;
 }
-
-export type ImageModelId = 'qwen-image' | 'z-image';
-
-/**
- * Both models run few-step distilled samplers at CFG 1, which never reads a
- * negative prompt. Anything to keep out of an image has to be handled in the
- * positive prompt, by describing what is there instead.
- */
-export const IMAGE_MODELS: Record<ImageModelId, { label: string }> = {
-	'qwen-image': { label: 'Qwen-Image 2512 (Lightning, 4 steps)' },
-	'z-image': { label: 'Z-Image Turbo (8 steps)' }
-};
 
 export interface ImageModel {
 	generate(req: ImageRequest, signal?: AbortSignal): Promise<ImageResult>;

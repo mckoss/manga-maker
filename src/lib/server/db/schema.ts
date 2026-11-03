@@ -4,6 +4,8 @@ export const users = sqliteTable('users', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	username: text('username').notNull().unique(),
 	passwordHash: text('password_hash').notNull(),
+	/** The image model this user's pictures are drawn with, unless a series or a single picture says otherwise. */
+	imageModel: text('image_model'),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 
@@ -60,7 +62,6 @@ export const styles = sqliteTable('styles', {
 		.references(() => users.id, { onDelete: 'cascade' }),
 	name: text('name').notNull(),
 	colorMode: text('color_mode').$type<ColorMode>().notNull().default('bw'),
-	model: text('model').notNull().default('qwen-image'),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 
@@ -121,6 +122,12 @@ export const versions = sqliteTable('versions', {
 	/** The user's instructions for this one round ("make her look over her shoulder"). */
 	guidance: text('guidance').notNull().default(''),
 	jobId: integer('job_id').references(() => jobs.id, { onDelete: 'set null' }),
+	/**
+	 * The AI model that made it: while pending, the image model chosen for
+	 * it; once made, the exact model that ran (see `MODEL_LABELS`). Empty
+	 * for the user's own versions and those made before this was recorded.
+	 */
+	model: text('model').notNull().default(''),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 
@@ -148,6 +155,8 @@ export const series = sqliteTable('series', {
 	 * with no other place). Null means the first location made.
 	 */
 	defaultLocationId: integer('default_location_id'),
+	/** The image model the series' pictures are drawn with; null uses the owner's default. */
+	imageModel: text('image_model'),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 });

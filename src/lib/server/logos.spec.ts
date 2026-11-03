@@ -51,8 +51,7 @@ beforeEach(async () => {
 	});
 	styleId = startStyle(db, owner, seriesId, {
 		description: 'Edo-period villages',
-		colorMode: 'bw',
-		model: 'qwen-image'
+		colorMode: 'bw'
 	});
 	await worker.drain();
 	requestStylePictures(db, owner, styleId, 'outdated');

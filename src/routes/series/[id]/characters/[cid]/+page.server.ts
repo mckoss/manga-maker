@@ -151,7 +151,8 @@ export const actions: Actions = {
 			requestPictures(db, ownerId, id, {
 				keys: isDesignKey(key) ? [key] : undefined,
 				guidance: str(form, 'guidance'),
-				seed: seedOf(form)
+				seed: seedOf(form),
+				model: str(form, 'model')
 			})
 		);
 	},
@@ -174,7 +175,8 @@ export const actions: Actions = {
 				id,
 				isSheetView(view) ? view : undefined,
 				str(form, 'guidance'),
-				seedOf(form)
+				seedOf(form),
+				str(form, 'model')
 			)
 		);
 	},

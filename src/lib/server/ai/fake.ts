@@ -24,7 +24,7 @@ export class FakeImageModel implements ImageModel {
 		})
 			.png()
 			.toBuffer();
-		return { png, workflow: { fake: true, ...req } };
+		return { png, model: `fake:${req.model}`, workflow: { fake: true, ...req } };
 	}
 
 	/** The first input, tinted by the seed, so each edit is a distinct image. */
@@ -35,12 +35,17 @@ export class FakeImageModel implements ImageModel {
 			.tint(`hsl(${req.seed % 360}, 50%, 50%)`)
 			.png()
 			.toBuffer();
-		return { png, workflow: { fake: true, prompt: req.prompt, seed: req.seed } };
+		return {
+			png,
+			model: `fake:${req.model ?? 'qwen-image'}`,
+			workflow: { fake: true, prompt: req.prompt, seed: req.seed }
+		};
 	}
 }
 
 /** Returns whatever `respond` produces for the conversation, validated by the schema. */
 export class FakeTextModel implements TextModel {
+	readonly name = 'fake-text';
 	calls: ChatMessage[][] = [];
 
 	constructor(private respond: (messages: ChatMessage[]) => unknown) {}

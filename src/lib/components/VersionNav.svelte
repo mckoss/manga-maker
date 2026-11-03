@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Icon from '#lib/components/Icon.svelte';
+	import { modelLabel } from '#lib/models.js';
 	import type { ItemView, VersionView } from '#lib/server/versions.js';
 
 	/**
@@ -108,6 +109,9 @@
 		<span class="meta">
 			{#if isCurrent}<strong>Selected</strong>{:else}<em>not selected</em>{/if}
 			· {ORIGIN[shown.origin] ?? shown.origin}
+			{#if shown.model}· <span class="model" title="The model that made it"
+					>{modelLabel(shown.model)}</span
+				>{/if}
 			{#if shown.guidance}· <span class="amended">amended: {shown.guidance}</span>{/if}
 		</span>
 	</div>

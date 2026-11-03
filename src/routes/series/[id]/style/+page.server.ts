@@ -1,6 +1,5 @@
 import { fail } from '@sveltejs/kit';
 import { getDb } from '#lib/server/db/index.js';
-import { IMAGE_MODELS } from '#lib/server/ai/image.js';
 import {
 	ownedSeries,
 	seriesScope,
@@ -16,7 +15,6 @@ import {
 	COLOR_MODES,
 	getStyle,
 	isColorMode,
-	isImageModel,
 	isSubject,
 	requestPictures,
 	requestPrompt,
@@ -41,7 +39,6 @@ import { getLogo, LogoError, requestLogo, stopLogo } from '#lib/server/logos.js'
 import type { Actions, PageServerLoad } from './$types';
 
 const colorModes = Object.entries(COLOR_MODES).map(([value, m]) => ({ value, label: m.label }));
-const models = Object.entries(IMAGE_MODELS).map(([value, m]) => ({ value, label: m.label }));
 
 export const load: PageServerLoad = async ({ params, locals, parent }) => {
 	const { series } = await parent();
@@ -51,7 +48,6 @@ export const load: PageServerLoad = async ({ params, locals, parent }) => {
 		editor: series.styleId ? getStyle(db, ownerId, series.styleId) : null,
 		logo: series.styleId ? getLogo(db, ownerId, series.id) : null,
 		colorModes,
-		models,
 		reusable: series.styleId ? [] : reusableStyles(db, ownerId, Number(params.id))
 	};
 };
@@ -107,15 +103,11 @@ export const actions: Actions = {
 	start: async ({ request, locals, params }) => {
 		const form = await request.formData();
 		const colorMode = str(form, 'colorMode');
-		const model = str(form, 'model');
-		if (!isColorMode(colorMode) || !isImageModel(model)) {
-			return fail(400, { error: 'Choose a color mode and a model.' });
-		}
+		if (!isColorMode(colorMode)) return fail(400, { error: 'Choose a color mode.' });
 		return run(() =>
 			startStyle(getDb(), locals.user!.id, Number(params.id), {
 				description: str(form, 'description'),
-				colorMode,
-				model
+				colorMode
 			})
 		);
 	},
@@ -129,13 +121,10 @@ export const actions: Actions = {
 	saveSettings: async ({ request, locals, params }) => {
 		const form = await request.formData();
 		const colorMode = str(form, 'colorMode');
-		const model = str(form, 'model');
-		if (!isColorMode(colorMode) || !isImageModel(model)) {
-			return fail(400, { error: 'Choose a color mode and a model.' });
-		}
+		if (!isColorMode(colorMode)) return fail(400, { error: 'Choose a color mode.' });
 		return run(() => {
 			const { db, styleId } = access(locals, params);
-			saveSettings(db, locals.user!.id, styleId, { colorMode, model });
+			saveSettings(db, locals.user!.id, styleId, { colorMode });
 		}, 'Saved.');
 	},
 	saveText: async ({ request, locals, params }) => {
@@ -205,7 +194,8 @@ export const actions: Actions = {
 				}
 				return requestPictures(db, locals.user!.id, styleId, which(form), {
 					seed,
-					guidance: str(form, 'guidance')
+					guidance: str(form, 'guidance'),
+					model: str(form, 'model')
 				});
 			},
 			(n) => count(n, 'picture')
@@ -257,7 +247,8 @@ export const actions: Actions = {
 			}
 			requestLogo(getDb(), locals.user!.id, Number(params.id), {
 				guidance: str(form, 'guidance'),
-				seed
+				seed,
+				model: str(form, 'model')
 			});
 		}, 'Generating the logo.');
 	},

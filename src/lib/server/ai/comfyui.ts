@@ -10,26 +10,62 @@ export class ComfyError extends Error {}
 const WORKFLOW_DIR = path.resolve('workflows');
 const POLL_MS = 1000;
 
-function loadWorkflow(name: ImageModelId | 'qwen-image-edit'): Workflow {
+/** The exact model each workflow runs, as recorded on the versions it makes. */
+const ENGINES: Record<ImageModelId, { generate: string; edit: string }> = {
+	'qwen-image': { generate: 'qwen-image-2512', edit: 'qwen-image-edit-2509' },
+	'z-image': { generate: 'z-image-turbo', edit: 'qwen-image-edit-2509' },
+	'qwen-image-2.1': { generate: 'qwen-image-2.1-turbo', edit: 'qwen-image-2.1-turbo' }
+};
+
+function loadWorkflow(name: ImageModelId | 'qwen-image-edit' | 'qwen-image-2.1-edit'): Workflow {
 	return JSON.parse(fs.readFileSync(path.join(WORKFLOW_DIR, `${name}.json`), 'utf8'));
 }
 
 /** Fill a text-to-image workflow template with a request's settings. */
 export function buildWorkflow(req: ImageRequest): Workflow {
 	const wf = loadWorkflow(req.model);
-	wf.positive.inputs.text = req.prompt;
 	wf.latent.inputs.width = req.width;
 	wf.latent.inputs.height = req.height;
-	wf.sampler.inputs.seed = req.seed;
+	if (req.model === 'qwen-image-2.1') {
+		wf.positive.inputs.prompt = req.prompt;
+		wf.noise.inputs.noise_seed = req.seed;
+	} else {
+		wf.positive.inputs.text = req.prompt;
+		wf.sampler.inputs.seed = req.seed;
+	}
 	return wf;
 }
 
 /**
- * Fill the Qwen-Image-Edit template. `inputs` are the names ComfyUI gave the
- * uploaded images. The first is edited (and sets the output's shape, about
- * one megapixel); the others go only to the text encoder, as references.
+ * Fill an edit template. `inputs` are the names ComfyUI gave the uploaded
+ * images. The first is edited (and sets the output's shape, about one
+ * megapixel); the others are references. Qwen-Image 2.1 edits itself and
+ * takes up to ten; the other families use Qwen-Image-Edit 2509, up to three.
  */
 export function buildEditWorkflow(req: Omit<EditRequest, 'images'>, inputs: string[]): Workflow {
+	if (req.model === 'qwen-image-2.1') {
+		if (inputs.length < 1 || inputs.length > 10)
+			throw new ComfyError('An edit takes one to ten images.');
+		const wf = loadWorkflow('qwen-image-2.1-edit');
+		inputs.forEach((name, i) => {
+			const n = i + 1;
+			wf[`load${n}`] = { class_type: 'LoadImage', inputs: { image: name } };
+			// Each reference about one megapixel, as the 2509 workflow does.
+			wf[`resize${n}`] = {
+				class_type: 'ImageScaleToTotalPixels',
+				inputs: {
+					image: [`load${n}`, 0],
+					upscale_method: 'lanczos',
+					megapixels: 1.0,
+					resolution_steps: 16
+				}
+			};
+			wf.positive.inputs[`images.image_${n}`] = [`resize${n}`, 0];
+		});
+		wf.positive.inputs.prompt = req.prompt;
+		wf.noise.inputs.noise_seed = req.seed;
+		return wf;
+	}
 	if (inputs.length < 1 || inputs.length > 3)
 		throw new ComfyError('An edit takes one to three images.');
 	const wf = loadWorkflow('qwen-image-edit');
@@ -134,16 +170,17 @@ export class ComfyUI implements ImageModel {
 	}
 
 	async generate(req: ImageRequest, signal?: AbortSignal): Promise<ImageResult> {
-		return this.run(buildWorkflow(req), signal);
+		return { ...(await this.run(buildWorkflow(req), signal)), model: ENGINES[req.model].generate };
 	}
 
 	async edit(req: EditRequest, signal?: AbortSignal): Promise<ImageResult> {
 		const inputs = [];
 		for (const image of req.images) inputs.push(await this.upload(image));
-		return this.run(buildEditWorkflow(req, inputs), signal);
+		const engine = ENGINES[req.model ?? 'qwen-image'].edit;
+		return { ...(await this.run(buildEditWorkflow(req, inputs), signal)), model: engine };
 	}
 
-	private async run(workflow: Workflow, signal?: AbortSignal): Promise<ImageResult> {
+	private async run(workflow: Workflow, signal?: AbortSignal): Promise<Omit<ImageResult, 'model'>> {
 		const promptId = await this.submit(workflow);
 		const entry = await this.wait(promptId, signal);
 		const image = Object.values(entry.outputs).flatMap((o) => o.images ?? [])[0];

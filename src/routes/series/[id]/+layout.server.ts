@@ -4,6 +4,8 @@ import { getSeries, SeriesError } from '#lib/server/series.js';
 import { listChapters } from '#lib/server/chapters.js';
 import { listCharacters } from '#lib/server/characters.js';
 import { listLocations } from '#lib/server/locations.js';
+import { seriesImageModel } from '#lib/server/models.js';
+import { IMAGE_MODELS, imageModelOptions, isImageModel } from '#lib/models.js';
 import type { LayoutServerLoad } from './$types';
 
 export const load: LayoutServerLoad = ({ params, locals }) => {
@@ -13,7 +15,15 @@ export const load: LayoutServerLoad = ({ params, locals }) => {
 		const series = getSeries(db, ownerId, Number(params.id));
 		const cast = listCharacters(db, ownerId, series.id);
 		const places = listLocations(db, ownerId, series.id);
+		const model = seriesImageModel(db, series);
 		return {
+			/** What the series draws with, for the pages' Regenerate buttons. */
+			imageModel: {
+				value: model,
+				label: IMAGE_MODELS[model].label,
+				fromSeries: isImageModel(series.imageModel)
+			},
+			imageModels: imageModelOptions(),
 			series,
 			chapters: listChapters(db, ownerId, series.id),
 			castSize: cast.length,

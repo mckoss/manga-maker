@@ -135,13 +135,12 @@ describe('style pipeline', () => {
 		expect(current(style.prompt)?.outOfDate).toEqual([]);
 		expect(current(style.pictures[0].item)?.outOfDate).toEqual(['the style prompt']);
 
-		saveSettings(db, owner, id, { colorMode: 'grayscale', model: 'z-image' });
+		saveSettings(db, owner, id, { colorMode: 'grayscale' });
 		style = getStyle(db, owner, id);
 		expect(current(style.prompt)?.outOfDate).toEqual(['the color mode']);
 		expect(current(style.pictures[0].item)?.outOfDate).toEqual([
 			'the style prompt',
-			'the color mode',
-			'the image model'
+			'the color mode'
 		]);
 	});
 

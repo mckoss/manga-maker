@@ -16,14 +16,12 @@
 		logo,
 		logline,
 		colorModes,
-		models,
 		form
 	}: {
 		ed: Editor;
 		logo: PageData['logo'];
 		logline: string;
 		colorModes: PageData['colorModes'];
-		models: PageData['models'];
 		form: { error?: string; message?: string } | null;
 	} = $props();
 
@@ -102,18 +100,15 @@
 				{/each}
 			</select>
 		</label>
-		<label>
-			Image model
-			<select name="model">
-				{#each models as model (model.value)}
-					<option value={model.value} selected={ed.style.model === model.value}
-						>{model.label}</option
-					>
-				{/each}
-			</select>
-		</label>
-		<button type="submit" class="secondary small">Save color and model</button>
+		<button type="submit" class="secondary small">Save color</button>
 	</form>
+	<p class="hint">
+		Pictures are drawn with {page.data.imageModel.label}{page.data.imageModel.fromSeries
+			? ', chosen for this series'
+			: ', your default'}. Change it in the
+		<a href={resolve('/series/[id]', { id: String(page.data.series.id) })}>series settings</a>, or
+		for one picture next to its Regenerate button.
+	</p>
 </section>
 
 <section>

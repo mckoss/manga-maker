@@ -8,10 +8,13 @@ import {
 	updateSeries
 } from '#lib/server/series.js';
 import { createChapter } from '#lib/server/chapters.js';
+import { setSeriesImageModel, userImageModel } from '#lib/server/models.js';
+import { IMAGE_MODELS, isImageModel } from '#lib/models.js';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => ({
-	directions: Object.entries(READING_DIRECTIONS).map(([value, d]) => ({ value, ...d }))
+export const load: PageServerLoad = ({ locals }) => ({
+	directions: Object.entries(READING_DIRECTIONS).map(([value, d]) => ({ value, ...d })),
+	userImageModel: IMAGE_MODELS[userImageModel(getDb(), locals.user!.id)].label
 });
 
 export const actions: Actions = {
@@ -21,12 +24,16 @@ export const actions: Actions = {
 		if (!isReadingDirection(readingDirection)) {
 			return fail(400, { error: 'Choose a reading direction.' });
 		}
+		const imageModel = String(form.get('imageModel') ?? '');
 		try {
-			updateSeries(getDb(), locals.user!.id, Number(params.id), {
+			const db = getDb();
+			updateSeries(db, locals.user!.id, Number(params.id), {
 				title: String(form.get('title') ?? ''),
 				logline: String(form.get('logline') ?? ''),
 				readingDirection
 			});
+			// updateSeries checked the owner. Empty goes back to the user's default.
+			setSeriesImageModel(db, Number(params.id), isImageModel(imageModel) ? imageModel : null);
 		} catch (e) {
 			if (e instanceof SeriesError) return fail(400, { error: e.message });
 			throw e;
