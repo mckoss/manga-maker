@@ -6,9 +6,10 @@ import { like } from 'drizzle-orm';
 import { openDb, type Db } from './db';
 import { items } from './db/schema';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
-import { Worker } from './jobs';
+import { enqueue, Worker } from './jobs';
 import { createUser } from './auth/users';
 import { fakeReply } from './ai';
+import { attachJob, ensureItem, startVersion } from './versions';
 import { requestPictures as requestStylePictures, styleJobHandlers } from './styles';
 import { createSeries, deleteSeries, getSeries, startStyle } from './series';
 import {
@@ -22,6 +23,7 @@ import {
 	LocationError,
 	locationJobHandlers,
 	locationPrompt,
+	locationScope,
 	parseDesign,
 	requestSheet,
 	saveText,
@@ -149,6 +151,32 @@ describe('locations', () => {
 		await worker.drain();
 		deleteSeries(db, owner, seriesId);
 		expect(locationItems()).toEqual([]);
+	});
+
+	it('leaves the name the AI writes unlocked, unlike a character’s', async () => {
+		const id = createLocation(db, owner, seriesId, brief);
+		await worker.drain();
+		const name = getLocation(db, owner, id).profile.find((p) => p.kind === 'name')!;
+		expect(current(name.item)?.text).toBe('The Lantern Inn');
+		expect(name.item.locked).toBe(false);
+	});
+
+	it('still runs a sheet job queued with the old payload', async () => {
+		const id = await drawn();
+		const detail = getLocation(db, owner, id);
+		chooseReference(db, owner, id, current(detail.designs[0].picture)!.id);
+		const it = ensureItem(db, owner, locationScope(id), 'sheet', 'rain');
+		const version = startVersion(db, it, { seed: 7 });
+		const job = enqueue(db, owner, 'location.sheet', {
+			locationId: id,
+			versionId: version.id,
+			view: 'rain'
+		});
+		attachJob(db, [version.id], job.id);
+		await worker.drain();
+		const rain = getLocation(db, owner, id).sheet.find((v) => v.view === 'rain')!;
+		expect(rain.status).toBe('ok');
+		expect(image.edits.at(-1)!.prompt).toContain('The same view in heavy rain.');
 	});
 
 	it('writes the prompt from the look', () => {

@@ -15,7 +15,8 @@ import { negativeFor, pictureModel } from './models';
 import { putImage, readAsset } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import { references } from './characters';
-import { defaultLocationId, locationReferences, locationScope } from './locations';
+import { defaultLocationId, locationReferences } from './locations';
+import { scopeOf } from './pipeline/ids';
 import { LOGO_KIND, ownedSeries, seriesScope, touchSeries } from './series';
 import { drawingStyle, sentence, toneOnly, TONE_REMINDER } from './styles';
 import {
@@ -85,10 +86,10 @@ function sourceOf(db: Db, row: Series): LogoSource {
 			placeId && placeRef?.assetHash
 				? {
 						id: placeId,
-						name: currentVersions(db, locationScope(placeId)).get('name')?.text ?? '',
+						name: currentVersions(db, scopeOf.location(placeId)).get('name')?.text ?? '',
 						referenceId: placeRef.id,
 						referenceHash: placeRef.assetHash,
-						what: currentVersions(db, locationScope(placeId)).get('setting')?.text ?? ''
+						what: currentVersions(db, scopeOf.location(placeId)).get('setting')?.text ?? ''
 					}
 				: undefined
 	};
