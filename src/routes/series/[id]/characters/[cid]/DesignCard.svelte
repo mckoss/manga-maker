@@ -43,6 +43,8 @@
 	let editable = $derived(!design.pending && shownDesign?.id === currentDesign?.id);
 	let name = $derived(`design ${slot}`);
 	let title = $derived(words?.label || `Design ${slot}`);
+	/** This design's selected picture is the character's reference. */
+	let isReference = $derived(Boolean(referenceHash) && currentPicture?.assetHash === referenceHash);
 
 	function parse(text: string | undefined) {
 		if (!text) return null;
@@ -58,7 +60,13 @@
 	const save = new AutoSave();
 </script>
 
-<article class="design" class:unselected={shownPicture && shownPicture.id !== picture.currentId}>
+<article
+	class="design"
+	id="design-{slot}"
+	class:reference={isReference}
+	class:unselected={shownPicture && shownPicture.id !== picture.currentId}
+>
+	{#if isReference}<p class="banner">Chosen reference</p>{/if}
 	<div class="words">
 		<h3>Design words</h3>
 		<Regenerate
@@ -132,7 +140,8 @@
 		<div class="row actions">
 			{#if shownPicture?.assetHash}
 				{#if shownPicture.assetHash === referenceHash}
-					<span class="chosen"><strong>Reference</strong></span>
+					<!-- The banner says so when the selected picture is the reference. -->
+					{#if !isReference}<span class="badge shu">Chosen reference</span>{/if}
 				{:else}
 					<form method="POST" action="?/choose" use:enhance>
 						<input type="hidden" name="versionId" value={shownPicture.id} />
@@ -166,6 +175,21 @@
 		padding: var(--space-4) var(--space-5);
 		background: var(--surface-panel);
 		border: var(--border-panel);
+	}
+	/* The design whose picture every panel draws from. */
+	.design.reference {
+		border-color: var(--shu);
+		box-shadow: var(--shadow-shu);
+	}
+	.banner {
+		grid-column: 1 / -1;
+		margin: calc(-1 * var(--space-4)) calc(-1 * var(--space-5)) 0;
+		padding: var(--space-2) var(--space-5);
+		background: var(--shu);
+		color: var(--paper);
+		font: 700 13px/1.2 var(--font-body);
+		letter-spacing: var(--tracking-caps);
+		text-transform: uppercase;
 	}
 	.words,
 	.picture {

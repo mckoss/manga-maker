@@ -38,6 +38,21 @@
 			return '';
 		}
 	});
+	/** Each design's selected picture: the options for the reference. */
+	let options = $derived(
+		data.designs.flatMap((d) => {
+			const v = d.picture.versions.find((p) => p.id === d.picture.currentId);
+			if (!v?.assetHash || !v.thumbHash) return [];
+			let label = '';
+			try {
+				const words = d.design.versions.find((x) => x.id === d.design.currentId)?.text;
+				label = (JSON.parse(words ?? '') as { label?: string }).label ?? '';
+			} catch {
+				// Unreadable words: fall back to the slot name.
+			}
+			return [{ key: d.key, version: v, label: label || `Design ${d.key}` }];
+		})
+	);
 	let hasDesign = $derived(data.designs.some((d) => d.design.currentId !== null));
 	/** No design picture has been drawn yet: the first drawing is the only next step. */
 	let neverDrawn = $derived(data.designs.every((d) => d.picture.versions.length === 0));
@@ -278,8 +293,36 @@
 		The reference picture redrawn from other angles and with different expressions, so panels can
 		show the character any way the script needs. About 10 seconds per picture.
 	</p>
+	{#if options.length}
+		<div class="choices" role="group" aria-label="Reference options">
+			{#each options as o (o.key)}
+				{@const chosen = o.version.assetHash === refCurrent?.assetHash}
+				<div class="choice" class:chosen>
+					<div class="frame">
+						<img src={asset(o.version.thumbHash ?? '')} alt="{o.label} option" loading="lazy" />
+						{#if chosen}<p class="banner">Chosen reference</p>{/if}
+					</div>
+					<span class="label">{o.label}</span>
+					{#if !chosen}
+						<form method="POST" action="?/choose" use:enhance>
+							<input type="hidden" name="versionId" value={o.version.id} />
+							<button
+								type="submit"
+								class="secondary small"
+								aria-label="Choose {o.label} as reference">Choose</button
+							>
+						</form>
+					{/if}
+				</div>
+			{/each}
+		</div>
+	{/if}
 	{#if !refCurrent}
-		<p class="hint">Choose a reference picture first.</p>
+		<p class="hint">
+			{options.length
+				? 'Choose one of these design pictures as the reference.'
+				: 'Draw the design pictures above, then choose one as the reference.'}
+		</p>
 	{:else}
 		<div class="row">
 			{#if data.due.sheet && data.sheet.some((s) => s.item.currentId)}
@@ -389,6 +432,54 @@
 	.amend-all input {
 		flex: 1 1 14rem;
 		min-width: 0;
+	}
+	/* The reference options at the top of the sheet: one thumbnail per design. */
+	.choices {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr));
+		gap: var(--space-4);
+		max-width: 44rem;
+		margin: var(--space-3) 0 var(--space-4);
+	}
+	.choice {
+		display: grid;
+		gap: var(--space-2);
+		align-content: start;
+		margin: 0;
+	}
+	.choice img {
+		width: 100%;
+		aspect-ratio: 4 / 7;
+		object-fit: cover;
+		border: var(--border-panel);
+		box-sizing: border-box;
+		opacity: 0.7;
+	}
+	.choice.chosen img {
+		opacity: 1;
+		border-color: var(--shu);
+		outline: 3px solid var(--shu);
+	}
+	.choice .label {
+		font: 700 13px var(--font-body);
+	}
+	.frame {
+		position: relative;
+	}
+	.choice .banner {
+		position: absolute;
+		top: 3px;
+		left: 3px;
+		right: 3px;
+		margin: 0;
+		padding: 2px var(--space-2);
+		background: var(--shu);
+		color: var(--paper);
+		font: 700 10px/1.4 var(--font-body);
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		text-align: center;
+		white-space: nowrap;
 	}
 	.sheet {
 		display: grid;

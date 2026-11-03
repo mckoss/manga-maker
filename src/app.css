@@ -382,6 +382,11 @@ th {
 	color: var(--ok);
 	border-color: var(--ok);
 }
+.badge.shu {
+	background: var(--shu);
+	border-color: var(--shu);
+	color: var(--paper);
+}
 .badge.lock,
 .badge.kept {
 	background: var(--paper);
