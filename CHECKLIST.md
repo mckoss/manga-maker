@@ -163,7 +163,11 @@ no behaviour.
       record `prompt_id` and `prompt_hash` (migration 0015) and show a soft
       "made with an earlier version of the prompt" note that never counts
       as out of date; texts unchanged byte for byte (v0.25.0)
-- [ ] Run records (messages, replies, retries; image workflow, model, seed)
+- [x] Run records: every AI-made version keeps what the AI was sent and
+      what came back (messages, raw replies, the self-correction retry,
+      parsed value; an image's model, seed, request and filled workflow) as
+      a content-addressed JSON asset (`versions.run_hash`, migration 0016),
+      shown under a small "Details" disclosure in `VersionNav` (v0.26.0)
 - [ ] Fake text replies routed by prompt id
 
 ## Next

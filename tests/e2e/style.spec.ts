@@ -115,3 +115,32 @@ test('folds answers to the art director’s questions into the description', asy
 	await page.getByRole('button', { name: 'Skip these questions' }).click();
 	await expect(page.getByRole('group', { name: 'Which era is it set in?' })).toHaveCount(0);
 });
+
+test('shows the run record of an AI-made version under Details', async ({ signedIn: page }) => {
+	await newStyle(page, 'Run details');
+	// The user's own description has no run record.
+	const description = page
+		.locator('.item')
+		.filter({ has: page.getByRole('textbox', { name: 'Description', exact: true }) });
+	await expect(description.getByText('Details', { exact: true })).toHaveCount(0);
+
+	const prompt = page
+		.locator('.item')
+		.filter({ has: page.getByRole('textbox', { name: 'Style prompt', exact: true }) });
+	await prompt.getByText('Details', { exact: true }).click();
+	const details = prompt.locator('details.run');
+	await expect(details.getByRole('heading', { name: 'Messages' })).toBeVisible();
+	await expect(details.getByText('system', { exact: true })).toBeVisible();
+	await expect(details.getByText('Edo-period ink, villages, kimono').first()).toBeVisible();
+	await expect(details.getByRole('heading', { name: 'Attempt 1' })).toBeVisible();
+	await expect(details.getByRole('heading', { name: 'Parsed' })).toBeVisible();
+	await expect(details.getByText('fake-text')).toBeVisible();
+
+	const face = picture(page, 'Face');
+	await face.getByText('Details', { exact: true }).click();
+	const drawn = face.locator('details.run');
+	await expect(drawn.getByText(/fake:[\w.-]+ · seed \d+/)).toBeVisible();
+	await expect(drawn.getByRole('heading', { name: 'Prompt' })).toBeVisible();
+	await expect(drawn.getByRole('heading', { name: 'Workflow' })).toBeVisible();
+	await expect(drawn.getByText('"fake": true')).toBeVisible();
+});

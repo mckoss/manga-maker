@@ -136,6 +136,12 @@ export const versions = sqliteTable('versions', {
 	 */
 	promptId: text('prompt_id').notNull().default(''),
 	promptHash: text('prompt_hash').notNull().default(''),
+	/**
+	 * The run record of the AI step that made it (an `application/json`
+	 * asset: what was sent and what came back; see `runs.ts`). Null for the
+	 * user's own versions and those made before this was recorded.
+	 */
+	runHash: text('run_hash').references(() => assets.hash),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 

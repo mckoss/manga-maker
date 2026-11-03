@@ -1,0 +1,1 @@
+ALTER TABLE `versions` ADD `run_hash` text REFERENCES assets(hash);

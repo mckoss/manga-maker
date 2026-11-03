@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import Icon from '#lib/components/Icon.svelte';
+	import RunDetails from '#lib/components/RunDetails.svelte';
 	import { modelLabel } from '#lib/models.js';
 	import type { ItemView, VersionView } from '#lib/server/versions.js';
 
@@ -148,6 +149,9 @@
 			</form>
 		{/if}
 	</div>
+	{#if shown.runHash}
+		{#key shown.runHash}<RunDetails runHash={shown.runHash} />{/key}
+	{/if}
 {/if}
 
 <style>

@@ -34,6 +34,7 @@ import {
 	versions
 } from './db/schema';
 import { enqueue, type JobHandler } from './jobs';
+import { putRun } from './runs';
 import { askJson } from './prompts/ask';
 import { touchSeries } from './series';
 import { drawingStyle, type DrawingStyle } from './styles';
@@ -1001,41 +1002,48 @@ export function syncCast(db: Db, chapterId: number): void {
 }
 
 /** The structure; nothing at all (no cascade) if its version was dropped meanwhile. */
-const structureRun: StepRun<PlotState> = async ({ ai, signal, state: s, slots, guidance }) => {
+const structureRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, guidance }) => {
 	if (!slots.some((x) => x.version?.status === 'pending')) return null;
-	const { value: reply, prompt } = await askJson(
-		ai,
-		'plot.structure',
-		structureMessages(s, guidance),
-		structureReply,
-		signal
-	);
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(ai, 'plot.structure', structureMessages(s, guidance), structureReply, signal);
+	const runHash = await putRun(db, run);
 	const key = reply.structure.trim();
 	if (!isStructure(key)) throw new Error(`The AI chose an unknown structure: ${key}`);
 	return new Map([
 		[
 			slotKey(structureSlot),
-			{ text: key, notes: reply.reason.trim(), model: ai.text.name, ...prompt }
+			{ text: key, notes: reply.reason.trim(), model: ai.text.name, ...prompt, runHash }
 		]
 	]);
 };
 
 /** The elements asked for; one the AI leaves empty is dropped. */
-const elementsRun: StepRun<PlotState> = async ({ ai, signal, state: s, slots, guidance }) => {
+const elementsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, guidance }) => {
 	if (!structureOf(s)) return null;
 	const rewrite = ELEMENT_KINDS.filter((k) => slots.some((x) => x.ref.kind === k));
-	const { value: reply, prompt } = await askJson(
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'plot.elements',
 		elementsMessages(s, rewrite, guidance),
 		elementsReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	const notes = reply.notes.trim();
 	return new Map(
 		rewrite.map((kind) => {
 			const text = reply[kind]?.trim();
-			return [slotKeyOf(kind), text ? { text, notes, model: ai.text.name, ...prompt } : null];
+			return [
+				slotKeyOf(kind),
+				text ? { text, notes, model: ai.text.name, ...prompt, runHash } : null
+			];
 		})
 	);
 };
@@ -1053,13 +1061,12 @@ const beatsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, g
 		if (version && !rewrite.includes(ref.key ?? '')) abandonVersion(db, version.id);
 	}
 	if (!rewrite.length) return null;
-	const { value: reply, prompt } = await askJson(
-		ai,
-		'plot.beats',
-		beatsMessages(s, rewrite, guidance),
-		beatsReply,
-		signal
-	);
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(ai, 'plot.beats', beatsMessages(s, rewrite, guidance), beatsReply, signal);
+	const runHash = await putRun(db, run);
 	const written = rewrite.map((key) => reply.beats.find((x) => x.key.trim() === key));
 	const { ids, created } = resolveCharacters(
 		db,
@@ -1087,7 +1094,8 @@ const beatsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, g
 							}),
 							notes,
 							model: ai.text.name,
-							...prompt
+							...prompt,
+							runHash
 						}
 					: null
 			];
@@ -1095,19 +1103,18 @@ const beatsRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, slots, g
 	);
 };
 
-const reviewRun: StepRun<PlotState> = async ({ ai, signal, state: s, guidance }) => {
+const reviewRun: StepRun<PlotState> = async ({ db, ai, signal, state: s, guidance }) => {
 	if (!structureOf(s)) return null;
-	const { value: reply, prompt } = await askJson(
-		ai,
-		'plot.review',
-		reviewMessages(s, guidance),
-		reviewReply,
-		signal
-	);
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(ai, 'plot.review', reviewMessages(s, guidance), reviewReply, signal);
+	const runHash = await putRun(db, run);
 	return new Map([
 		[
 			slotKey(reviewSlot),
-			{ text: JSON.stringify(reply.notes.slice(0, 8)), model: ai.text.name, ...prompt }
+			{ text: JSON.stringify(reply.notes.slice(0, 8)), model: ai.text.name, ...prompt, runHash }
 		]
 	]);
 };
@@ -1118,13 +1125,18 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const { chapterId, versionId } = job.payload as { chapterId: number; versionId: number };
 	const s = loadState(db, chapterId);
 	if (!s) return;
-	const { value: reply, prompt } = await askJson(
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'plot.questions',
 		[{ role: 'user', content: storyContext(s).join('\n') }],
 		questionsReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	const list = reply.questions.slice(0, 4).map((q) => ({
 		question: q.question.trim(),
 		suggestions: q.suggestions
@@ -1136,7 +1148,8 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 		text: JSON.stringify(list),
 		inputs: ideaInputs(s),
 		model: ai.text.name,
-		...prompt
+		...prompt,
+		runHash
 	});
 };
 
@@ -1145,7 +1158,11 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const s = loadState(db, chapterId);
 	const version = db.select().from(versions).where(eq(versions.id, versionId)).get();
 	if (!s || version?.status !== 'pending') return;
-	const { value: reply, prompt } = await askJson(
+	const {
+		value: reply,
+		prompt,
+		run
+	} = await askJson(
 		ai,
 		'plot.fold',
 		[
@@ -1162,11 +1179,13 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 		foldReply,
 		signal
 	);
+	const runHash = await putRun(db, run);
 	finishVersion(db, versionId, {
 		text: reply.notes.trim(),
 		notes: 'Your answers, folded into your notes.',
 		model: ai.text.name,
-		...prompt
+		...prompt,
+		runHash
 	});
 	// The questions were about the old notes; they are now answered.
 	const now = loadState(db, chapterId)!;

@@ -1,7 +1,7 @@
 import sharp from 'sharp';
 import type { z } from 'zod';
 import type { EditRequest, ImageModel, ImageRequest, ImageResult } from './image';
-import type { ChatMessage, TextModel, TextRequestOptions } from './text';
+import type { ChatMessage, TextModel, TextRequestOptions, TextRun } from './text';
 
 /**
  * Stand-ins for tests, CI and machines without the AI services
@@ -57,9 +57,15 @@ export class FakeTextModel implements TextModel {
 		schema: z.ZodType<T>,
 		_signal?: AbortSignal,
 		options: TextRequestOptions = {}
-	): Promise<T> {
+	): Promise<{ value: T; run: TextRun<T> }> {
 		this.calls.push(messages);
 		this.promptIds.push(options.promptId);
-		return schema.parse(this.respond(messages));
+		const raw = this.respond(messages);
+		const value = schema.parse(raw);
+		const reply = JSON.stringify(raw) ?? '';
+		return {
+			value,
+			run: { model: this.name, options: {}, messages, attempts: [{ reply }], parsed: value }
+		};
 	}
 }

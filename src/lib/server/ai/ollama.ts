@@ -1,5 +1,15 @@
 import type { z } from 'zod';
-import { extractJson, TextModelError, type ChatMessage, type TextModel } from './text';
+import {
+	extractJson,
+	TextModelError,
+	type ChatMessage,
+	type TextAttempt,
+	type TextModel,
+	type TextRun
+} from './text';
+
+/** The request options every chat is sent with. */
+const OPTIONS = { think: false, options: { temperature: 0.7 } };
 
 /**
  * Ollama's chat API. Its MLX models don't support the `format` (structured
@@ -26,8 +36,7 @@ export class Ollama implements TextModel {
 					model: this.model,
 					messages,
 					stream: false,
-					think: false,
-					options: { temperature: 0.7 }
+					...OPTIONS
 				}),
 				signal
 			});
@@ -41,20 +50,32 @@ export class Ollama implements TextModel {
 		return body.message?.content ?? '';
 	}
 
-	async json<T>(messages: ChatMessage[], schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
+	async json<T>(
+		messages: ChatMessage[],
+		schema: z.ZodType<T>,
+		signal?: AbortSignal
+	): Promise<{ value: T; run: TextRun<T> }> {
+		const attempts: TextAttempt[] = [];
+		const done = (value: T) => ({
+			value,
+			run: { model: this.model, options: OPTIONS, messages, attempts, parsed: value }
+		});
 		const reply = await this.chat(messages, signal);
+		attempts.push({ reply });
 		try {
-			return schema.parse(extractJson(reply));
+			return done(schema.parse(extractJson(reply)));
 		} catch (e) {
-			const retry: ChatMessage[] = [
-				...messages,
+			attempts[0]!.error = (e as Error).message;
+			const added: ChatMessage[] = [
 				{ role: 'assistant', content: reply },
 				{
 					role: 'user',
 					content: `That reply could not be used: ${(e as Error).message}\nReply again with only the corrected JSON object.`
 				}
 			];
-			return schema.parse(extractJson(await this.chat(retry, signal)));
+			const again = await this.chat([...messages, ...added], signal);
+			attempts.push({ added, reply: again });
+			return done(schema.parse(extractJson(again)));
 		}
 	}
 }

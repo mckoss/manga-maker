@@ -13,6 +13,8 @@ import { chapters, items, jobs, versions } from './db/schema';
 import { prompt, type PromptId } from './prompts';
 import { ELEMENT_KINDS } from '#lib/structures.js';
 import { listCharacters } from './characters';
+import { readAsset } from './assets';
+import type { TextRunRecord } from './runs';
 import {
 	answerQuestions,
 	chooseStructure,
@@ -185,6 +187,40 @@ describe('chapter plot', () => {
 			]);
 		}
 		expect(plot().notes.versions.every((v) => v.promptChanged === false)).toBe(true);
+	});
+
+	it('keeps a run record of every AI text version, the clarify flow included', async () => {
+		saveNotes(db, owner, seriesId, chapterId, 'A storm on the pass.');
+		requestQuestions(db, owner, seriesId, chapterId);
+		await worker.drain();
+		answerQuestions(db, owner, seriesId, chapterId, ['A cliffhanger']);
+		await worker.drain();
+		updatePlot(db, owner, seriesId, chapterId);
+		await worker.drain();
+		const made = db
+			.select({ id: versions.promptId, runHash: versions.runHash })
+			.from(versions)
+			.innerJoin(items, eq(versions.itemId, items.id))
+			.where(and(eq(versions.origin, 'ai'), eq(items.scope, `chapter:${chapterId}`)))
+			.all();
+		expect(new Set(made.map((r) => r.id))).toEqual(
+			new Set([
+				'plot.structure',
+				'plot.elements',
+				'plot.beats',
+				'plot.review',
+				'plot.questions',
+				'plot.fold'
+			])
+		);
+		for (const r of made) {
+			const run = JSON.parse(readAsset(r.runHash!).toString('utf8')) as TextRunRecord;
+			expect(run.kind).toBe('text');
+			expect(run.messages[0]).toEqual({ role: 'system', content: prompt(r.id as PromptId).text });
+			expect(JSON.parse(run.attempts[0].reply)).toEqual(run.parsed);
+		}
+		// The user's own versions have none.
+		expect(plot().notes.versions[0].runHash).toBeNull();
 	});
 
 	it('drops the beats of a structure chosen while they were queued, and keeps the payload shape', async () => {
