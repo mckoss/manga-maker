@@ -95,9 +95,44 @@ function fakeDesignsReply() {
 	};
 }
 
+/** A canned location profile. */
+function fakeLocationReply() {
+	return {
+		name: 'The Lantern Inn',
+		purpose: 'Where the travelers meet and plan.',
+		history: 'Built by a retired sailor a century ago.',
+		atmosphere: 'Warm, smoky and loud after dark.',
+		setting: 'a wooden roadside inn in a mountain pass',
+		appearance: 'a long low hall with a sunken hearth, dark beams and sliding paper doors',
+		details: 'paper lanterns, low tables, a ship model above the hearth',
+		notes: 'Fake AI backend: this is a placeholder location, not a real suggestion.'
+	};
+}
+
+/** Canned location designs, each a different look. */
+function fakeLocationDesignsReply() {
+	const looks = [
+		['close to the profile', 'a long low hall with a sunken hearth'],
+		['cramped, cluttered, one lamp', 'a narrow room crowded with crates'],
+		['airy, open veranda', 'an open hall with a veranda over the valley'],
+		['ruined, overgrown', 'a half-collapsed hall with vines through the roof']
+	];
+	return {
+		fixed: ['setting: a mountain inn, from the notes'],
+		free: ['scale: long / cramped / airy / ruined'],
+		designs: looks.map(([label, appearance]) => ({
+			label,
+			appearance,
+			details: 'paper lanterns and low tables'
+		}))
+	};
+}
+
 /** Answers each kind of request the app makes with a canned reply. */
 export function fakeReply(messages: ChatMessage[]) {
 	const system = messages[0]?.content ?? '';
+	if (system.includes('location scout')) return fakeLocationReply();
+	if (system.includes('designs for one location')) return fakeLocationDesignsReply();
 	if (system.includes('story editor')) return fakeCharacterReply();
 	if (system.includes('different visual designs')) return fakeDesignsReply();
 	if (system.includes('sample scenes')) return fakeScenesReply();

@@ -32,7 +32,7 @@ test('creates a series with a first chapter and walks their steps', async ({ sig
 	}
 	await expect(steps.getByText('not started')).toBeVisible();
 	await steps.getByRole('link', { name: 'Locations' }).click();
-	await expect(page.getByText('Not built yet.')).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Locations', level: 1 })).toBeVisible();
 
 	await steps.getByRole('link', { name: 'Chapter 1' }).click();
 	await expect(page.getByRole('heading', { name: 'Chapter 1', level: 1 })).toBeVisible();

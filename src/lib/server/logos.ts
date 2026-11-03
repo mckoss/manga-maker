@@ -1,8 +1,9 @@
 /**
  * The series logo: a square branding mark for the whole series, shown in
  * place of the series' initial wherever the series appears. It is drawn
- * from the protagonist's reference picture, in front of a typical scene of
- * the story, and is versioned like everything else the AI makes.
+ * from the protagonist's reference picture, in front of the series' default
+ * location (or, without one, a typical scene of the story), and is versioned
+ * like everything else the AI makes.
  */
 import sharp from 'sharp';
 import { and, eq } from 'drizzle-orm';
@@ -12,10 +13,12 @@ import { randomSeed } from './ai/image';
 import { putImage, readAsset } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import { references } from './characters';
+import { defaultLocationId, locationReferences, locationScope } from './locations';
 import { LOGO_KIND, ownedSeries, seriesScope, touchSeries } from './series';
 import { drawingStyle, sentence, toneOnly, TONE_REMINDER } from './styles';
 import {
 	attachJob,
+	currentVersions,
 	describeScope,
 	dropPending,
 	ensureItem,
@@ -36,6 +39,7 @@ const INPUT_LABELS: Record<string, string> = {
 	protagonist: 'the protagonist',
 	reference: 'the protagonist’s reference picture',
 	setting: 'the logline',
+	location: 'the default location',
 	color: 'the color mode'
 };
 
@@ -46,6 +50,8 @@ interface LogoSource {
 	/** The story's setting, for the background. */
 	setting: string;
 	protagonist?: { id: number; name: string; referenceId: number; referenceHash: string };
+	/** The default location, once it has a reference picture: the background. */
+	place?: { id: number; name: string; referenceId: number; referenceHash: string; what: string };
 }
 
 function sourceOf(db: Db, row: Series): LogoSource {
@@ -63,6 +69,8 @@ function sourceOf(db: Db, row: Series): LogoSource {
 	// The first protagonist with a reference picture.
 	const lead = leads.find((c) => refs.get(c.id)?.assetHash);
 	const ref = lead ? refs.get(lead.id) : undefined;
+	const placeId = defaultLocationId(db, row);
+	const placeRef = placeId ? locationReferences(db, [placeId]).get(placeId) : undefined;
 	return {
 		series: row,
 		colorMode: style?.colorMode ?? 'bw',
@@ -70,6 +78,16 @@ function sourceOf(db: Db, row: Series): LogoSource {
 		protagonist:
 			lead && ref?.assetHash
 				? { id: lead.id, name: lead.name, referenceId: ref.id, referenceHash: ref.assetHash }
+				: undefined,
+		place:
+			placeId && placeRef?.assetHash
+				? {
+						id: placeId,
+						name: currentVersions(db, locationScope(placeId)).get('name')?.text ?? '',
+						referenceId: placeRef.id,
+						referenceHash: placeRef.assetHash,
+						what: currentVersions(db, locationScope(placeId)).get('setting')?.text ?? ''
+					}
 				: undefined
 	};
 }
@@ -78,22 +96,34 @@ const inputsOf = (src: LogoSource) => ({
 	protagonist: String(src.protagonist?.id ?? ''),
 	reference: String(src.protagonist?.referenceId ?? ''),
 	setting: src.setting,
-	color: src.colorMode
+	color: src.colorMode,
+	// Only once there is one, so logos drawn before locations existed stay up to date.
+	...(src.place ? { location: String(src.place.referenceId) } : {})
 });
 
 /**
  * The edit instruction: the protagonist, kept exactly, as a bold emblem in
  * front of a scene that says what the story is.
  */
-export function logoPrompt(colorMode: ColorMode, setting: string, guidance = ''): string {
+export function logoPrompt(
+	colorMode: ColorMode,
+	setting: string,
+	guidance = '',
+	place = ''
+): string {
+	const background = place.trim()
+		? sentence(
+				`Behind them, the place in the second picture, ${place.trim()}, kept recognizable but simplified`
+			)
+		: setting.trim()
+			? sentence(`Behind them, a typical scene from the story: ${setting.trim()}`)
+			: 'Behind them, a typical scene from their world.';
 	return toneOnly(
 		colorMode,
 		[
-			'Make a square emblem for a manga series from this picture.',
+			`Make a square emblem for a manga series from ${place.trim() ? 'these pictures' : 'this picture'}.`,
 			'Show the same character from the chest up, large and centered, facing slightly to one side with a confident expression.',
-			setting.trim()
-				? sentence(`Behind them, a typical scene from the story: ${setting.trim()}`)
-				: 'Behind them, a typical scene from their world.',
+			background,
 			'Bold, simple shapes that read at a small size, framed to fill the square. No text or lettering.',
 			sentence(guidance),
 			'Keep the same character exactly: the same face, hair, body, clothing and props. Keep the same drawing style, line work and shading.',
@@ -114,6 +144,7 @@ export function getLogo(db: Db, ownerId: number, seriesId: number) {
 	return {
 		item,
 		protagonist: src.protagonist ? { id: src.protagonist.id, name: src.protagonist.name } : null,
+		place: src.place ? { id: src.place.id, name: src.place.name } : null,
 		canDraw:
 			Boolean(src.protagonist) && Boolean(row.styleId && drawingStyle(db, row.styleId)?.ready)
 	};
@@ -168,8 +199,23 @@ const logoHandler: JobHandler = async (job, { db, ai, signal }) => {
 		.resize(LOGO_SIZE, LOGO_SIZE, { fit: 'contain', background: CANVAS })
 		.png()
 		.toBuffer();
-	const prompt = logoPrompt(src.colorMode, src.setting, version.guidance);
-	const result = await ai.image.edit({ prompt, images: [square], seed: version.seed ?? 0 }, signal);
+	const images = [square];
+	if (src.place) {
+		// The default location, cropped to the same square, for the background.
+		images.push(
+			await sharp(readAsset(src.place.referenceHash))
+				.resize(LOGO_SIZE, LOGO_SIZE, { fit: 'cover' })
+				.png()
+				.toBuffer()
+		);
+	}
+	const prompt = logoPrompt(
+		src.colorMode,
+		src.setting,
+		version.guidance,
+		src.place ? src.place.what || src.place.name || 'the series’ main location' : ''
+	);
+	const result = await ai.image.edit({ prompt, images, seed: version.seed ?? 0 }, signal);
 	const { hash, thumbHash } = await putImage(db, result.png);
 	finishVersion(db, versionId, { text: prompt, assetHash: hash, thumbHash, inputs: inputsOf(src) });
 	touchSeries(db, seriesId);

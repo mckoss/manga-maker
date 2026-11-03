@@ -143,6 +143,11 @@ export const series = sqliteTable('series', {
 	readingDirection: text('reading_direction').$type<ReadingDirection>().notNull().default('rtl'),
 	/** The series' own style; null until one is started. */
 	styleId: integer('style_id').references(() => styles.id, { onDelete: 'set null' }),
+	/**
+	 * The location the series falls back on (the logo's background, a scene
+	 * with no other place). Null means the first location made.
+	 */
+	defaultLocationId: integer('default_location_id'),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 });
@@ -196,6 +201,31 @@ export const characters = sqliteTable('characters', {
 });
 
 export type Character = typeof characters.$inferSelect;
+
+/**
+ * A recurring place in a series. Like a character, everything about it
+ * (notes, profile, designs, pictures, the reference and the sheet) is a
+ * versioned item in the scope "location:<id>"; the name is copied here from
+ * its current version for lists.
+ */
+export const locations = sqliteTable('locations', {
+	id: integer('id').primaryKey({ autoIncrement: true }),
+	seriesId: integer('series_id')
+		.notNull()
+		.references(() => series.id, { onDelete: 'cascade' }),
+	name: text('name').notNull().default(''),
+	/** Design picture seeds derive from this, so redraws after edits compare like for like. */
+	seed: integer('seed').notNull(),
+	/** What the AI found the latest designs could vary (free) and what is decided (fixed). */
+	designTraits: text('design_traits', { mode: 'json' }).$type<{
+		fixed: string[];
+		free: string[];
+	}>(),
+	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
+});
+
+export type Location = typeof locations.$inferSelect;
 
 /**
  * A character appearing in a chapter, drawn from the design (reference

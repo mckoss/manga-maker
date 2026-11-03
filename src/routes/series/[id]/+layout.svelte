@@ -50,6 +50,13 @@
 								title="{data.castReady} of {data.castSize} have a reference picture"
 								>{data.castReady}/{data.castSize}</small
 							>
+						{:else if phase.key === 'locations' && data.placesSize}
+							<small
+								class="status"
+								class:approved={data.placesReady === data.placesSize}
+								title="{data.placesReady} of {data.placesSize} have a reference picture"
+								>{data.placesReady}/{data.placesSize}</small
+							>
 						{/if}
 					</a>
 				</li>

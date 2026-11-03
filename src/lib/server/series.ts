@@ -1,6 +1,14 @@
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from './db';
-import { chapters, characters, items, series, versions, type ReadingDirection } from './db/schema';
+import {
+	chapters,
+	characters,
+	items,
+	locations,
+	series,
+	versions,
+	type ReadingDirection
+} from './db/schema';
 import { deleteScope } from './versions';
 import { copyStyle, createStyle, deleteStyle, listStyles, type StyleInput } from './styles';
 
@@ -141,6 +149,13 @@ export function deleteSeries(db: Db, ownerId: number, seriesId: number): void {
 			.where(eq(characters.seriesId, seriesId))
 			.all()) {
 			deleteScope(db, `character:${id}`);
+		}
+		for (const { id } of db
+			.select({ id: locations.id })
+			.from(locations)
+			.where(eq(locations.seriesId, seriesId))
+			.all()) {
+			deleteScope(db, `location:${id}`);
 		}
 		deleteScope(db, seriesScope(seriesId));
 		db.delete(series).where(eq(series.id, seriesId)).run();
