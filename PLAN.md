@@ -369,14 +369,15 @@ domain module:
 - `entity.ts`: `entityPipeline(config)`, the profile → designs → pictures →
   reference → sheet pipeline, parameterised by the domain's data (profile
   and look kinds, design keys, sheet views, picture size) and hooks (text
-  jobs, prompts, `afterDevelop`). Characters run on it; prompts stay in the
-  domain module.
+  jobs, prompts, `afterDevelop`). Characters and locations run on it;
+  prompts stay in the domain module. A character's `afterDevelop` locks the
+  first name the AI writes; a location's only copies the name to its row.
 
 The refactor lands in small, behaviour-preserving PRs:
 
 1. Typed ids, the registry and engine, and characters on `entityPipeline`
    (v0.23.1).
-2. Locations on the same `entityPipeline` factory.
+2. Locations on the same `entityPipeline` factory (v0.23.2).
 3. Plots: slots and upstream as functions of the state, `ready` gates, the
    cast sync as `afterFinish`. The questions → answers → fold "clarify" flow
    that plots and styles share stays a helper outside the engine.

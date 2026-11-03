@@ -150,7 +150,7 @@ no behaviour.
 
 - [x] Typed scope and slot ids; the pipeline registry and generic engine,
       with unit tests; characters on `entityPipeline` (v0.23.1)
-- [ ] Locations on `entityPipeline`
+- [x] Locations on `entityPipeline`; no name auto-lock (v0.23.2)
 - [ ] Plots on the engine (clarify flow stays a shared helper)
 - [ ] Styles on the engine, `cascades: false` throughout
 - [ ] Prompt registry with prompt ids and hashes on versions

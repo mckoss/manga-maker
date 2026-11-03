@@ -7,16 +7,12 @@ import {
 	series,
 	versions,
 	type ColorMode,
-	type Item,
 	type Location,
 	type Series,
 	type Version
 } from './db/schema';
 import { randomSeed } from './ai/image';
-import { isImageModel } from '#lib/models.js';
-import { negativeFor, pictureModel } from './models';
-import { putImage, readAsset } from './assets';
-import { enqueue, type JobHandler } from './jobs';
+import type { JobHandler } from './jobs';
 import { ownedSeries, touchSeries } from './series';
 import {
 	COLOR_MODES,
@@ -29,20 +25,26 @@ import {
 	type DrawingStyle
 } from './styles';
 import {
-	abandonVersion,
 	addVersion,
-	attachJob,
 	currentVersions,
 	deleteScope,
 	describeScope,
 	dropPending,
 	ensureItem,
-	finishVersion,
-	startVersion,
-	VersionError,
 	type Access,
 	type ItemView
 } from './versions';
+import { parseScope, scopeOf, slot, slotKeyOf } from './pipeline/ids';
+import type { Status, StepRun } from './pipeline/registry';
+import {
+	ENTITY_STAGES,
+	entityPipeline,
+	textOf,
+	type EntityStage,
+	type EntityState
+} from './pipeline/entity';
+
+export type { Status };
 
 export class LocationError extends Error {}
 
@@ -56,7 +58,7 @@ export class LocationError extends Error {}
  * it from other angles and at other times of day, so panels can set a scene
  * there from any direction.
  */
-export const locationScope = (locationId: number) => `location:${locationId}`;
+export const locationScope = scopeOf.location;
 
 /** What the AI writes into the profile from the user's notes. */
 export const PROFILE_KINDS = [
@@ -133,8 +135,8 @@ const designText = (d: Design) =>
 	JSON.stringify({ label: d.label, appearance: d.appearance, details: d.details });
 
 /** The stages of the pipeline the AI regenerates. */
-export const STAGES = ['profile', 'designs', 'pictures', 'sheet'] as const;
-export type Stage = (typeof STAGES)[number];
+export const STAGES = ENTITY_STAGES;
+export type Stage = EntityStage;
 
 /** Names of inputs, to say why something is out of date. */
 const INPUT_LABELS: Record<string, string> = {
@@ -245,143 +247,33 @@ export function sheetPrompt(
 			.join(' ')
 	);
 }
-
 // ---------------------------------------------------------------------------
-// State: the current version of every item, and what each is made from
+// State: the current version of every item, and what each is made from.
+// What each item is made from, where it stands and what is due are the
+// shared entity pipeline's (see pipeline/entity.ts); `flow` below runs it.
 
-interface LocationState {
+interface LocationState extends EntityState {
 	location: Location;
-	series: Series;
-	/** The series' style, ready or not: the AI's context for the setting. */
-	context: DrawingStyle | undefined;
-	/** The series' style once it can draw (it has a prompt and a sample). */
-	ready: DrawingStyle | undefined;
-	current: Map<string, Version>;
 }
 
 function stateOf(db: Db, location: Location, owner: Series): LocationState {
 	const context = owner.styleId ? drawingStyle(db, owner.styleId) : undefined;
+	const scope = locationScope(location.id);
 	return {
+		id: location.id,
+		ownerId: owner.ownerId,
+		scope,
+		name: location.name,
+		seed: location.seed,
 		location,
 		series: owner,
 		context,
 		ready: context?.ready ? context : undefined,
-		current: currentVersions(db, locationScope(location.id))
+		current: currentVersions(db, scope)
 	};
 }
-
-const textOf = (s: LocationState, slot: string) => s.current.get(slot)?.text ?? '';
 
 const profileInputs = (s: LocationState) => ({ brief: textOf(s, 'brief') });
-
-const lookInputs = (s: LocationState) => ({
-	brief: textOf(s, 'brief'),
-	setting: textOf(s, 'setting'),
-	appearance: textOf(s, 'appearance'),
-	details: textOf(s, 'details')
-});
-
-const styleInputs = (s: LocationState) => ({
-	style: String(s.ready?.promptVersionId ?? ''),
-	color: s.ready?.colorMode ?? ''
-});
-
-/** The model chosen when a picture was asked for; for older pending ones, the series'. */
-const modelOf = (db: Db, s: LocationState, version: Version) =>
-	isImageModel(version.model) ? version.model : pictureModel(db, s.series);
-
-const pictureInputs = (s: LocationState, key: string) => ({
-	design: textOf(s, `design:${key}`),
-	setting: textOf(s, 'setting'),
-	...styleInputs(s)
-});
-
-const referenceInputs = (s: LocationState) => ({ ...lookInputs(s), ...styleInputs(s) });
-
-const sheetInputs = (s: LocationState) => ({
-	reference: String(s.current.get('reference')?.id ?? ''),
-	color: s.context?.colorMode ?? ''
-});
-
-/** What a new version of an item would be made from; null for the user's own inputs. */
-function inputsFor(s: LocationState, item: Pick<Item, 'kind' | 'key'>) {
-	if (isProfileKind(item.kind)) return profileInputs(s);
-	if (item.kind === 'design') return lookInputs(s);
-	if (item.kind === 'picture') return pictureInputs(s, item.key);
-	if (item.kind === 'reference') return referenceInputs(s);
-	if (item.kind === 'sheet') return sheetInputs(s);
-	return null;
-}
-
-/** The items each item is made from, as slot keys. */
-function upstreamOf(item: Pick<Item, 'kind' | 'key'>): string[] {
-	if (item.kind === 'design') return [...LOOK_KINDS];
-	if (item.kind === 'picture') return [`design:${item.key}`, 'setting'];
-	if (item.kind === 'reference') return [...LOOK_KINDS];
-	if (item.kind === 'sheet') return ['reference'];
-	return [];
-}
-
-/** Where an item stands; see the character pipeline. */
-export type Status = 'missing' | 'pending' | 'outdated' | 'upstream' | 'ok';
-
-function statuses(views: Map<string, ItemView>) {
-	const memo = new Map<string, Status>();
-	const view = (slot: string) => views.get(slot);
-	/** Locked items, and the reference, which only the user chooses. */
-	const anchored = (slot: string) =>
-		Boolean(view(slot)?.locked) || (slot === 'reference' && Boolean(view(slot)?.currentId));
-	const status = (slot: string): Status => {
-		const known = memo.get(slot);
-		if (known) return known;
-		const v = view(slot);
-		const [kind, key = ''] = slot.split(':');
-		let result: Status;
-		const current = v?.versions.find((x) => x.id === v.currentId);
-		if (v?.pending) result = 'pending';
-		else if (!current) result = 'missing';
-		else if (current.outOfDate.length) result = 'outdated';
-		else {
-			const changing = upstreamOf({ kind, key }).some((u) => !anchored(u) && status(u) !== 'ok');
-			result = changing ? 'upstream' : 'ok';
-		}
-		memo.set(slot, result);
-		return result;
-	};
-	/** Every earlier step is settled: locked, or up to date. */
-	const settled = (slot: string) => {
-		const [kind, key = ''] = slot.split(':');
-		return upstreamOf({ kind, key }).every((u) => anchored(u) || status(u) === 'ok');
-	};
-	return { status, settled };
-}
-
-/** Slots that can be regenerated now: unlocked, missing or out of date, with earlier steps settled. */
-function dueSlots(db: Db, s: LocationState, stage: Stage): string[] {
-	const views = describeScope(db, locationScope(s.location.id), (i) => inputsFor(s, i), {});
-	const { status, settled } = statuses(views);
-	const due = (slot: string) => {
-		if (views.get(slot)?.locked) return false;
-		const st = status(slot);
-		return (st === 'missing' || st === 'outdated') && settled(slot);
-	};
-	if (stage === 'profile') {
-		if (!textOf(s, 'brief') && !s.location.name) return [];
-		return PROFILE_KINDS.filter((k) => due(k));
-	}
-	if (stage === 'designs') {
-		if (!s.context || !textOf(s, 'appearance')) return [];
-		return DESIGN_KEYS.map((k) => `design:${k}`).filter(due);
-	}
-	if (stage === 'pictures') {
-		if (!s.ready) return [];
-		return DESIGN_KEYS.filter((k) => s.current.get(`design:${k}`))
-			.map((k) => `picture:${k}`)
-			.filter(due);
-	}
-	if (!s.ready || !s.current.get('reference')?.assetHash) return [];
-	return SHEET_VIEWS.map((v) => `sheet:${v.key}`).filter(due);
-}
 
 // ---------------------------------------------------------------------------
 // Queries
@@ -436,7 +328,7 @@ export function locationReferences(db: Db, locationIds: number[]): Map<number, V
 			)
 		)
 		.all();
-	for (const r of rows) out.set(Number(r.scope.split(':')[1]), r.version);
+	for (const r of rows) out.set(parseScope(r.scope).id, r.version);
 	return out;
 }
 
@@ -488,20 +380,14 @@ const emptyView = (kind: string, key = ''): ItemView => ({
 
 export function getLocation(db: Db, ownerId: number, locationId: number) {
 	const s = ownedState(db, ownerId, locationId);
-	const views = describeScope(
-		db,
-		locationScope(locationId),
-		(item) => inputsFor(s, item),
-		INPUT_LABELS
-	);
-	const { status } = statuses(views);
-	const view = (kind: string, key = '') =>
-		views.get(key ? `${kind}:${key}` : kind) ?? emptyView(kind, key);
+	// One scan of the scope says where every item stands and what is due.
+	const snap = flow.describe(db, s, INPUT_LABELS);
+	const { views, status } = snap;
+	const view = (kind: string, key = '') => views.get(slotKeyOf(kind, key)) ?? emptyView(kind, key);
 	const all = [...views.values()];
-	const due = Object.fromEntries(STAGES.map((st) => [st, dueSlots(db, s, st).length])) as Record<
-		Stage,
-		number
-	>;
+	const due = Object.fromEntries(
+		STAGES.map((st) => [st, flow.dueSlots(s, st, snap).length])
+	) as Record<Stage, number>;
 	// The AI's latest notes on the profile.
 	const notes =
 		PROFILE_KINDS.map((k) => s.current.get(k))
@@ -517,14 +403,14 @@ export function getLocation(db: Db, ownerId: number, locationId: number) {
 		view: v.key,
 		label: v.label,
 		item: view('sheet', v.key),
-		status: status(`sheet:${v.key}`)
+		status: status(slotKeyOf('sheet', v.key))
 	}));
 	const designs = DESIGN_KEYS.map((key) => ({
 		key,
 		design: view('design', key),
-		designStatus: status(`design:${key}`),
+		designStatus: status(slotKeyOf('design', key)),
 		picture: view('picture', key),
-		pictureStatus: status(`picture:${key}`)
+		pictureStatus: status(slotKeyOf('picture', key))
 	}));
 	/** Where a step of the pipeline stands, over its items. */
 	const summary = (slots: string[]) => {
@@ -557,10 +443,10 @@ export function getLocation(db: Db, ownerId: number, locationId: number) {
 		flow: {
 			notes: summary(['brief']),
 			profile: summary([...PROFILE_KINDS]),
-			designs: summary(DESIGN_KEYS.map((k) => `design:${k}`)),
-			pictures: summary(DESIGN_KEYS.map((k) => `picture:${k}`)),
+			designs: summary(DESIGN_KEYS.map((k) => slotKeyOf('design', k))),
+			pictures: summary(DESIGN_KEYS.map((k) => slotKeyOf('picture', k))),
 			reference: summary(['reference']),
-			sheet: summary(SHEET_VIEWS.map((v) => `sheet:${v.key}`))
+			sheet: summary(SHEET_VIEWS.map((v) => slotKeyOf('sheet', v.key)))
 		},
 		developing: profileItems.some((p) => p.item.pending),
 		designing: designs.some((d) => d.design.pending),
@@ -572,16 +458,6 @@ export type LocationDetail = ReturnType<typeof getLocation>;
 
 // ---------------------------------------------------------------------------
 // Commands
-
-/** Turn a VersionError into a LocationError the page shows. */
-function run<T>(fn: () => T): T {
-	try {
-		return fn();
-	} catch (e) {
-		if (e instanceof VersionError) throw new LocationError(e.message);
-		throw e;
-	}
-}
 
 const item = (db: Db, s: LocationState, kind: string, key = '') =>
 	ensureItem(db, s.series.ownerId, locationScope(s.location.id), kind, key);
@@ -676,7 +552,7 @@ export function saveText(
 	addVersion(
 		db,
 		it,
-		{ origin: 'user', text: final, inputs: inputsFor(s, it) ?? {} },
+		{ origin: 'user', text: final, inputs: flow.inputsFor(s, slot(kind)) ?? {} },
 		generated ? { keep } : {}
 	);
 	if (kind === 'name') syncLocation(db, locationId);
@@ -702,14 +578,14 @@ export function saveDesign(
 	if (!clean.appearance) throw new LocationError('Describe how this design looks.');
 	const it = item(db, s, 'design', key);
 	const text = designText(clean);
-	if (text === textOf(s, `design:${key}`)) {
+	if (text === textOf(s, slotKeyOf('design', key))) {
 		if (it.locked !== keep) {
 			db.update(items).set({ locked: keep }).where(eq(items.id, it.id)).run();
 			if (keep) dropPending(db, [it.id]);
 		}
 		return;
 	}
-	addVersion(db, it, { origin: 'user', text, inputs: lookInputs(s) }, { keep });
+	addVersion(db, it, { origin: 'user', text, inputs: flow.lookInputs(s) }, { keep });
 }
 
 /** Options for the jobs a request starts. */
@@ -722,85 +598,43 @@ interface Start {
 }
 
 function startProfile(db: Db, s: LocationState, kinds: ProfileKind[], opts: Start = {}): number {
-	if (!kinds.length) return 0;
-	const started = run(() =>
-		kinds.map((k) => [k, startVersion(db, item(db, s, k), { guidance: opts.guidance }).id] as const)
-	);
-	const job = enqueue(db, s.series.ownerId, 'location.develop', {
-		locationId: s.location.id,
-		versionIds: Object.fromEntries(started),
-		guidance: opts.guidance?.trim() ?? '',
-		cascade: opts.cascade ?? []
-	});
-	attachJob(
+	return flow.start(
 		db,
-		started.map(([, id]) => id),
-		job.id
+		s,
+		'profile',
+		kinds.map((k) => slot(k)),
+		opts
 	);
-	return started.length;
 }
 
 function startDesigns(db: Db, s: LocationState, keys: DesignKey[], opts: Start = {}): number {
 	if (!keys.length) return 0;
 	if (!s.context) throw new LocationError('Describe the series’ style first.');
 	if (!textOf(s, 'appearance')) throw new LocationError('Describe how the location looks first.');
-	const started = run(() =>
-		keys.map(
-			(k) =>
-				[k, startVersion(db, item(db, s, 'design', k), { guidance: opts.guidance }).id] as const
-		)
-	);
-	const job = enqueue(db, s.series.ownerId, 'location.designs', {
-		locationId: s.location.id,
-		versionIds: Object.fromEntries(started),
-		guidance: opts.guidance?.trim() ?? '',
-		cascade: opts.cascade ?? []
-	});
-	attachJob(
+	return flow.start(
 		db,
-		started.map(([, id]) => id),
-		job.id
+		s,
+		'designs',
+		keys.map((k) => slot('design', k)),
+		opts
 	);
-	return started.length;
 }
 
 const NO_STYLE = 'Draw at least one sample picture of the series’ style before drawing locations.';
 
-/**
- * Draw design pictures. Each keeps the seed of its current version when its
- * design or the style changed, so the new picture shows what the change did;
- * regenerating an up-to-date picture uses a new seed.
- */
+/** Draw design pictures (see the pictures stage for how seeds are kept). */
 function startPictures(db: Db, s: LocationState, keys: DesignKey[], opts: Start = {}): number {
 	if (!keys.length) return 0;
 	if (!s.ready) throw new LocationError(NO_STYLE);
-	const views = describeScope(db, locationScope(s.location.id), (i) => inputsFor(s, i), {});
-	return run(
-		() =>
-			keys.map((key) => {
-				if (!s.current.get(`design:${key}`)) throw new LocationError('Write the design first.');
-				const current = s.current.get(`picture:${key}`);
-				const view = views.get(`picture:${key}`);
-				const outOfDate = view?.versions.find((v) => v.id === view.currentId)?.outOfDate.length;
-				const seed =
-					opts.seed ??
-					(current && !outOfDate
-						? randomSeed()
-						: (current?.seed ?? s.location.seed + DESIGN_KEYS.indexOf(key)));
-				const version = startVersion(db, item(db, s, 'picture', key), {
-					seed,
-					guidance: opts.guidance,
-					model: pictureModel(db, s.series, opts.model)
-				});
-				const job = enqueue(db, s.series.ownerId, 'location.picture', {
-					locationId: s.location.id,
-					versionId: version.id,
-					key,
-					cascade: opts.cascade ?? []
-				});
-				attachJob(db, [version.id], job.id);
-				return version;
-			}).length
+	if (keys.some((k) => !s.current.get(slotKeyOf('design', k)))) {
+		throw new LocationError('Write the design first.');
+	}
+	return flow.start(
+		db,
+		s,
+		'pictures',
+		keys.map((k) => slot('picture', k)),
+		opts
 	);
 }
 
@@ -810,23 +644,12 @@ function startSheet(db: Db, s: LocationState, views: SheetView[], opts: Start = 
 	if (!s.current.get('reference')?.assetHash) {
 		throw new LocationError('Choose a reference picture first.');
 	}
-	const seed = opts.seed ?? randomSeed();
-	return run(
-		() =>
-			views.map((view, i) => {
-				const version = startVersion(db, item(db, s, 'sheet', view), {
-					seed: seed + i,
-					guidance: opts.guidance,
-					model: pictureModel(db, s.series, opts.model)
-				});
-				const job = enqueue(db, s.series.ownerId, 'location.sheet', {
-					locationId: s.location.id,
-					versionId: version.id,
-					view
-				});
-				attachJob(db, [version.id], job.id);
-				return version;
-			}).length
+	return flow.start(
+		db,
+		s,
+		'sheet',
+		views.map((v) => slot('sheet', v)),
+		opts
 	);
 }
 
@@ -841,33 +664,14 @@ export function updateOutdated(
 	stages: readonly Stage[] = STAGES
 ): number {
 	ownedLocation(db, ownerId, locationId);
-	return advance(db, locationId, stages);
+	return flow.advance(db, locationId, stages);
 }
 
-const after = (stage: Stage, cascade: Stage[]) =>
-	cascade.filter((st) => STAGES.indexOf(st) > STAGES.indexOf(stage));
-
-function advance(db: Db, locationId: number, stages: readonly Stage[]): number {
-	const s = loadState(db, locationId);
-	if (!s) return 0;
-	const cascade = [...stages];
-	let started = 0;
-	for (const stage of stages) {
-		const due = dueSlots(db, s, stage);
-		const keys = due.map((slot) => slot.split(':')[1] ?? slot);
-		if (stage === 'profile') started += startProfile(db, s, due as ProfileKind[], { cascade });
-		if (stage === 'designs') started += startDesigns(db, s, keys as DesignKey[], { cascade });
-		if (stage === 'pictures') started += startPictures(db, s, keys as DesignKey[], { cascade });
-		if (stage === 'sheet') {
-			for (const view of keys as SheetView[]) {
-				started += startSheet(db, s, [view], {
-					guidance: s.current.get(`sheet:${view}`)?.guidance ?? ''
-				});
-			}
-		}
-	}
-	return started;
-}
+/** Which items are locked, from one scan of the scope. */
+const keptIn = (db: Db, locationId: number) => {
+	const views = describeScope(db, locationScope(locationId), () => null, {});
+	return (kind: string, key?: string) => Boolean(views.get(slotKeyOf(kind, key))?.locked);
+};
 
 /** Ask the AI to rewrite profile fields (all unlocked, or the ones given). */
 export function requestProfile(
@@ -877,8 +681,8 @@ export function requestProfile(
 	opts: { kinds?: ProfileKind[]; guidance?: string } = {}
 ): number {
 	const s = ownedState(db, ownerId, locationId);
-	const views = describeScope(db, locationScope(locationId), () => null, {});
-	const kinds = opts.kinds ?? PROFILE_KINDS.filter((k) => !views.get(k)?.locked);
+	const kept = keptIn(db, locationId);
+	const kinds = opts.kinds ?? PROFILE_KINDS.filter((k) => !kept(k));
 	if (!kinds.length) throw new LocationError('Every field is locked.');
 	return startProfile(db, s, kinds, { guidance: opts.guidance });
 }
@@ -891,8 +695,8 @@ export function requestDesigns(
 	opts: { keys?: DesignKey[]; guidance?: string } = {}
 ): number {
 	const s = ownedState(db, ownerId, locationId);
-	const views = describeScope(db, locationScope(locationId), () => null, {});
-	const keys = opts.keys ?? DESIGN_KEYS.filter((k) => !views.get(`design:${k}`)?.locked);
+	const kept = keptIn(db, locationId);
+	const keys = opts.keys ?? DESIGN_KEYS.filter((k) => !kept('design', k));
 	if (!keys.length) throw new LocationError('Every design is locked.');
 	return startDesigns(db, s, keys, { guidance: opts.guidance, cascade: ['pictures'] });
 }
@@ -906,10 +710,10 @@ export function requestPictures(
 ): number {
 	const s = ownedState(db, ownerId, locationId);
 	if (!s.ready) throw new LocationError(NO_STYLE);
-	const views = describeScope(db, locationScope(locationId), () => null, {});
+	const kept = keptIn(db, locationId);
 	const keys =
 		opts.keys ??
-		DESIGN_KEYS.filter((k) => s.current.get(`design:${k}`) && !views.get(`picture:${k}`)?.locked);
+		DESIGN_KEYS.filter((k) => s.current.get(slotKeyOf('design', k)) && !kept('picture', k));
 	return startPictures(db, s, keys, {
 		guidance: opts.guidance,
 		seed: opts.seed,
@@ -930,11 +734,11 @@ export function requestSheet(
 ): number {
 	const s = ownedState(db, ownerId, locationId);
 	if (only) return startSheet(db, s, [only], { guidance, seed, model });
-	const views = describeScope(db, locationScope(locationId), () => null, {});
+	const kept = keptIn(db, locationId);
 	return startSheet(
 		db,
 		s,
-		SHEET_VIEWS.map((v) => v.key).filter((v) => !views.get(`sheet:${v}`)?.locked),
+		SHEET_VIEWS.map((v) => v.key).filter((v) => !kept('sheet', v)),
 		{ guidance }
 	);
 }
@@ -1111,34 +915,6 @@ export function developMessages(
 	];
 }
 
-const developHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { locationId, versionIds, guidance, cascade } = job.payload as {
-		locationId: number;
-		versionIds: Partial<Record<ProfileKind, number>>;
-		guidance: string;
-		cascade: Stage[];
-	};
-	const s = loadState(db, locationId);
-	if (!s) return; // deleted meanwhile
-	const rewrite = PROFILE_KINDS.filter((k) => versionIds[k] !== undefined);
-	const reply = await ai.text.json(
-		developMessages(s, placesOf(db, s), rewrite, guidance),
-		developReply,
-		signal
-	);
-	const inputs = profileInputs(s);
-	for (const kind of rewrite) {
-		const id = versionIds[kind]!;
-		const raw = reply[kind].trim();
-		const text = (LOOK_KINDS as readonly string[]).includes(kind) ? positiveOnly(raw) : raw;
-		if (text)
-			finishVersion(db, id, { text, inputs, notes: reply.notes.trim(), model: ai.text.name });
-		else abandonVersion(db, id);
-	}
-	syncLocation(db, locationId);
-	advance(db, locationId, after('profile', cascade));
-};
-
 const DESIGNS_SYSTEM = `You are an experienced manga background artist. You propose clearly different designs for one location, so the user can pick the look they like best.
 
 Work in two steps.
@@ -1205,19 +981,45 @@ export function designMessages(s: LocationState, count: number, others: Design[]
 	];
 }
 
-const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { locationId, versionIds, guidance, cascade } = job.payload as {
-		locationId: number;
-		versionIds: Partial<Record<DesignKey, number>>;
-		guidance: string;
-		cascade: Stage[];
-	};
-	const s = loadState(db, locationId);
-	if (!s) return; // deleted meanwhile
+const developRun: StepRun<LocationState> = async ({
+	db,
+	ai,
+	signal,
+	state: s,
+	slots,
+	guidance
+}) => {
+	const rewrite = PROFILE_KINDS.filter((k) => slots.some((x) => x.ref.kind === k));
+	const reply = await ai.text.json(
+		developMessages(s, placesOf(db, s), rewrite, guidance),
+		developReply,
+		signal
+	);
+	return new Map(
+		rewrite.map((kind) => {
+			const raw = reply[kind].trim();
+			const text = (LOOK_KINDS as readonly string[]).includes(kind) ? positiveOnly(raw) : raw;
+			return [kind, text ? { text, notes: reply.notes.trim(), model: ai.text.name } : null];
+		})
+	);
+};
+
+/**
+ * Write the requested designs, and record which traits they vary. A short
+ * reply leaves the rest on the current look.
+ */
+const designsRun: StepRun<LocationState> = async ({
+	db,
+	ai,
+	signal,
+	state: s,
+	slots,
+	guidance
+}) => {
 	if (!s.context) throw new Error('The series has no style.');
-	const keys = DESIGN_KEYS.filter((k) => versionIds[k] !== undefined);
-	const others = DESIGN_KEYS.filter((k) => versionIds[k] === undefined)
-		.map((k) => parseDesign(textOf(s, `design:${k}`)))
+	const keys = DESIGN_KEYS.filter((k) => slots.some((x) => x.ref.key === k));
+	const others = DESIGN_KEYS.filter((k) => !keys.includes(k))
+		.map((k) => parseDesign(textOf(s, slotKeyOf('design', k))))
 		.filter((d): d is Design => d !== null);
 	const reply = await ai.text.json(
 		designMessages(s, keys.length, others, guidance),
@@ -1227,103 +1029,51 @@ const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const clean = (list: string[]) => list.map((t) => t.trim()).filter(Boolean);
 	db.update(locations)
 		.set({ designTraits: { fixed: clean(reply.fixed), free: clean(reply.free) } })
-		.where(eq(locations.id, locationId))
+		.where(eq(locations.id, s.location.id))
 		.run();
-	const inputs = lookInputs(s);
-	keys.forEach((key, i) => {
-		const d = reply.designs[i];
-		finishVersion(db, versionIds[key]!, {
-			text: designText({
+	return new Map(
+		keys.map((key, i) => {
+			const d = reply.designs[i];
+			const text = designText({
 				label: d?.label.trim() || 'Current look',
 				appearance: positiveOnly(d?.appearance.trim() || textOf(s, 'appearance')),
 				details: positiveOnly(d?.details.trim() || textOf(s, 'details'))
-			}),
-			inputs,
-			model: ai.text.name
-		});
-	});
-	advance(db, locationId, after('designs', cascade));
+			});
+			return [slotKeyOf('design', key), { text, model: ai.text.name }];
+		})
+	);
 };
 
-const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { locationId, versionId, key, cascade } = job.payload as {
-		locationId: number;
-		versionId: number;
-		key: DesignKey;
-		cascade: Stage[];
-	};
-	const s = loadState(db, locationId);
-	const version = db.select().from(versions).where(eq(versions.id, versionId)).get();
-	if (!s || version?.status !== 'pending') return; // deleted or superseded meanwhile
-	if (!s.ready) throw new Error('The series’ style is not ready.');
-	const design = parseDesign(textOf(s, `design:${key}`));
-	if (!design) throw new Error('The design is missing.');
-	const prompt = locationPrompt(
-		s.ready,
-		{ setting: textOf(s, 'setting'), appearance: design.appearance, details: design.details },
-		version.guidance
-	);
-	const inputs = pictureInputs(s, key);
-	const model = modelOf(db, s, version);
-	const result = await ai.image.generate(
-		{
-			model,
-			prompt,
-			negative: negativeFor(model, s.series),
-			seed: version.seed ?? 0,
-			...CANDIDATE_SIZE
-		},
-		signal
-	);
-	const { hash, thumbHash } = await putImage(db, result.png);
-	finishVersion(db, versionId, {
-		text: prompt,
-		assetHash: hash,
-		thumbHash,
-		inputs,
-		model: result.model
-	});
-	advance(db, locationId, after('pictures', cascade));
-};
+// ---------------------------------------------------------------------------
+// The pipeline. Unlike a character's, a location's name is never locked
+// once the AI writes it: only a name the user gives is kept.
 
-const sheetHandler: JobHandler = async (job, { db, ai, signal }) => {
-	const { locationId, versionId, view } = job.payload as {
-		locationId: number;
-		versionId: number;
-		view: SheetView;
-	};
-	const s = loadState(db, locationId);
-	const version = db.select().from(versions).where(eq(versions.id, versionId)).get();
-	if (!s || version?.status !== 'pending') return; // deleted or superseded meanwhile
-	const reference = s.current.get('reference');
-	if (!reference?.assetHash) throw new Error('The reference picture is missing.');
-	const colorMode = s.context?.colorMode ?? 'bw';
-	const prompt = sheetPrompt(colorMode, view, version.guidance, textOf(s, 'setting'));
-	const inputs = sheetInputs(s);
-	const model = modelOf(db, s, version);
-	const result = await ai.image.edit(
-		{
-			model,
-			prompt,
-			negative: negativeFor(model, s.series),
-			images: [readAsset(reference.assetHash)],
-			seed: version.seed ?? 0
-		},
-		signal
-	);
-	const { hash, thumbHash } = await putImage(db, result.png);
-	finishVersion(db, versionId, {
-		text: prompt,
-		assetHash: hash,
-		thumbHash,
-		inputs,
-		model: result.model
-	});
-};
+const flow = entityPipeline<LocationState>({
+	domain: 'location',
+	load: loadState,
+	error: (message) => new LocationError(message),
+	labels: INPUT_LABELS,
+	profileKinds: PROFILE_KINDS,
+	lookKinds: LOOK_KINDS,
+	profileInputs,
+	designKeys: DESIGN_KEYS,
+	sheetViews: SHEET_VIEWS.map((v) => v.key),
+	pictureSize: CANDIDATE_SIZE,
+	develop: developRun,
+	designs: designsRun,
+	afterDevelop: (db, s) => syncLocation(db, s.location.id),
+	picturePrompt: (s, key, guidance) => {
+		const design = parseDesign(textOf(s, slotKeyOf('design', key)));
+		if (!design) throw new Error('The design is missing.');
+		return locationPrompt(
+			s.ready,
+			{ setting: textOf(s, 'setting'), appearance: design.appearance, details: design.details },
+			guidance
+		);
+	},
+	sheetPrompt: (colorMode: ColorMode, view, guidance, what) =>
+		sheetPrompt(colorMode, view as SheetView, guidance, what)
+});
 
-export const locationJobHandlers: Record<string, JobHandler> = {
-	'location.develop': developHandler,
-	'location.designs': designsHandler,
-	'location.picture': pictureHandler,
-	'location.sheet': sheetHandler
-};
+/** Job kinds: location.develop, location.designs, location.picture, location.sheet. */
+export const locationJobHandlers: Record<string, JobHandler> = flow.handlers();

@@ -29,7 +29,7 @@ import { enqueue, type JobHandler } from './jobs';
 import { touchSeries } from './series';
 import { drawingStyle, type DrawingStyle } from './styles';
 import { characterScope, createCharacter, isRole, ROLES, type Role } from './characters';
-import { defaultLocationId, locationScope } from './locations';
+import { defaultLocationId } from './locations';
 import { ChapterError, chapterName, ownedChapter } from './chapters';
 import {
 	addVersion,
@@ -195,7 +195,7 @@ function stateOf(db: Db, chapter: Chapter, owner: Series): PlotState {
 		.orderBy(asc(locations.id))
 		.all()
 		.map((l) => {
-			const cur = currentVersions(db, locationScope(l.id));
+			const cur = currentVersions(db, scopeOf.location(l.id));
 			return {
 				name: l.name || cur.get('name')?.text || 'Unnamed place',
 				setting: cur.get('setting')?.text ?? '',
