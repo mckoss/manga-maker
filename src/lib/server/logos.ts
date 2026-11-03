@@ -11,7 +11,7 @@ import type { Db } from './db';
 import { characters, series, versions, type ColorMode, type Series } from './db/schema';
 import { randomSeed } from './ai/image';
 import { isImageModel } from '#lib/models.js';
-import { pictureModel } from './models';
+import { negativeFor, pictureModel } from './models';
 import { putImage, readAsset } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import { references } from './characters';
@@ -235,7 +235,10 @@ const logoHandler: JobHandler = async (job, { db, ai, signal }) => {
 		src.place ? src.place.what || src.place.name || 'the series’ main location' : ''
 	);
 	const model = isImageModel(version.model) ? version.model : pictureModel(db, row);
-	const result = await ai.image.edit({ model, prompt, images, seed: version.seed ?? 0 }, signal);
+	const result = await ai.image.edit(
+		{ model, prompt, negative: negativeFor(model, row), images, seed: version.seed ?? 0 },
+		signal
+	);
 	const { hash, thumbHash } = await putImage(db, result.png);
 	finishVersion(db, versionId, {
 		text: prompt,

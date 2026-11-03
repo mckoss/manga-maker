@@ -157,6 +157,11 @@ export const series = sqliteTable('series', {
 	defaultLocationId: integer('default_location_id'),
 	/** The image model the series' pictures are drawn with; null uses the owner's default. */
 	imageModel: text('image_model'),
+	/**
+	 * What pictures should not show, for the models that take a negative
+	 * prompt. Empty uses DEFAULT_AVOID.
+	 */
+	avoid: text('avoid').notNull().default(''),
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 	updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull()
 });

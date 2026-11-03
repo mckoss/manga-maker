@@ -14,19 +14,58 @@ const POLL_MS = 1000;
 const ENGINES: Record<ImageModelId, { generate: string; edit: string }> = {
 	'qwen-image': { generate: 'qwen-image-2512', edit: 'qwen-image-edit-2509' },
 	'z-image': { generate: 'z-image-turbo', edit: 'qwen-image-edit-2509' },
-	'qwen-image-2.1': { generate: 'qwen-image-2.1-turbo', edit: 'qwen-image-2.1-turbo' }
+	'qwen-image-2.1': { generate: 'qwen-image-2.1-turbo', edit: 'qwen-image-2.1-turbo' },
+	'qwen-image-2.1-full': { generate: 'qwen-image-2.1', edit: 'qwen-image-2.1' },
+	'qwen-image-2.1-strong': { generate: 'qwen-image-2.1-strong', edit: 'qwen-image-2.1-strong' }
 };
 
-function loadWorkflow(name: ImageModelId | 'qwen-image-edit' | 'qwen-image-2.1-edit'): Workflow {
+/** The strong-prompt variant's guidance: each step runs twice, with and without the prompt. */
+export const STRONG_CFG = 4;
+
+type WorkflowName =
+	'qwen-image' | 'z-image' | 'qwen-image-2.1' | 'qwen-image-edit' | 'qwen-image-2.1-edit';
+
+function loadWorkflow(name: WorkflowName): Workflow {
 	return JSON.parse(fs.readFileSync(path.join(WORKFLOW_DIR, `${name}.json`), 'utf8'));
+}
+
+const isQwen21 = (model?: ImageModelId) => model?.startsWith('qwen-image-2.1') ?? false;
+const isFullQwen21 = (model?: ImageModelId) =>
+	model === 'qwen-image-2.1-full' || model === 'qwen-image-2.1-strong';
+
+/** The 2.1 graph for a model: Turbo as saved, else the full weights, maybe guided. */
+function qwen21(wf: Workflow, model: ImageModelId | undefined, negative = ''): Workflow {
+	if (!isFullQwen21(model)) return wf;
+	useFullQwen21(wf);
+	if (model === 'qwen-image-2.1-strong') {
+		wf.guider.inputs.cfg = STRONG_CFG;
+		wf.positive.inputs.negative_prompt = negative;
+	}
+	return wf;
+}
+
+/**
+ * The full Qwen-Image 2.1 runs the Turbo graph with the undistilled weights
+ * and 25 evenly scheduled steps instead of Turbo's eight hand-tuned sigmas
+ * (as ComfyUI's own Qwen-Image 2.1 templates do: euler, simple, cfg 1).
+ */
+function useFullQwen21(wf: Workflow): Workflow {
+	wf.unet.inputs.unet_name = 'qwen_image_2.1_bf16.safetensors';
+	wf.sigmas = {
+		class_type: 'BasicScheduler',
+		inputs: { model: ['cache', 0], scheduler: 'simple', steps: 25, denoise: 1 }
+	};
+	return wf;
 }
 
 /** Fill a text-to-image workflow template with a request's settings. */
 export function buildWorkflow(req: ImageRequest): Workflow {
-	const wf = loadWorkflow(req.model);
+	const wf = isQwen21(req.model)
+		? qwen21(loadWorkflow('qwen-image-2.1'), req.model, req.negative)
+		: loadWorkflow(req.model as WorkflowName);
 	wf.latent.inputs.width = req.width;
 	wf.latent.inputs.height = req.height;
-	if (req.model === 'qwen-image-2.1') {
+	if (isQwen21(req.model)) {
 		wf.positive.inputs.prompt = req.prompt;
 		wf.noise.inputs.noise_seed = req.seed;
 	} else {
@@ -43,10 +82,10 @@ export function buildWorkflow(req: ImageRequest): Workflow {
  * takes up to ten; the other families use Qwen-Image-Edit 2509, up to three.
  */
 export function buildEditWorkflow(req: Omit<EditRequest, 'images'>, inputs: string[]): Workflow {
-	if (req.model === 'qwen-image-2.1') {
+	if (isQwen21(req.model)) {
 		if (inputs.length < 1 || inputs.length > 10)
 			throw new ComfyError('An edit takes one to ten images.');
-		const wf = loadWorkflow('qwen-image-2.1-edit');
+		const wf = qwen21(loadWorkflow('qwen-image-2.1-edit'), req.model, req.negative);
 		inputs.forEach((name, i) => {
 			const n = i + 1;
 			wf[`load${n}`] = { class_type: 'LoadImage', inputs: { image: name } };

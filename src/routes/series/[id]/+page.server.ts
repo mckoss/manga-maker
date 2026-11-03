@@ -8,13 +8,19 @@ import {
 	updateSeries
 } from '#lib/server/series.js';
 import { createChapter } from '#lib/server/chapters.js';
-import { setSeriesImageModel, userImageModel } from '#lib/server/models.js';
+import {
+	seriesAvoid,
+	setSeriesAvoid,
+	setSeriesImageModel,
+	userImageModel
+} from '#lib/server/models.js';
 import { IMAGE_MODELS, isImageModel } from '#lib/models.js';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = ({ locals }) => ({
+export const load: PageServerLoad = async ({ locals, parent }) => ({
 	directions: Object.entries(READING_DIRECTIONS).map(([value, d]) => ({ value, ...d })),
-	userImageModel: IMAGE_MODELS[userImageModel(getDb(), locals.user!.id)].label
+	userImageModel: IMAGE_MODELS[userImageModel(getDb(), locals.user!.id)].label,
+	avoid: seriesAvoid((await parent()).series)
 });
 
 export const actions: Actions = {
@@ -34,6 +40,7 @@ export const actions: Actions = {
 			});
 			// updateSeries checked the owner. Empty goes back to the user's default.
 			setSeriesImageModel(db, Number(params.id), isImageModel(imageModel) ? imageModel : null);
+			setSeriesAvoid(db, Number(params.id), String(form.get('avoid') ?? ''));
 		} catch (e) {
 			if (e instanceof SeriesError) return fail(400, { error: e.message });
 			throw e;

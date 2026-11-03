@@ -14,7 +14,7 @@ import {
 } from './db/schema';
 import { randomSeed } from './ai/image';
 import { isImageModel } from '#lib/models.js';
-import { pictureModel } from './models';
+import { negativeFor, pictureModel } from './models';
 import { putImage, readAsset } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import { ownedSeries, touchSeries } from './series';
@@ -1264,8 +1264,15 @@ const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
 		version.guidance
 	);
 	const inputs = pictureInputs(s, key);
+	const model = modelOf(db, s, version);
 	const result = await ai.image.generate(
-		{ model: modelOf(db, s, version), prompt, seed: version.seed ?? 0, ...CANDIDATE_SIZE },
+		{
+			model,
+			prompt,
+			negative: negativeFor(model, s.series),
+			seed: version.seed ?? 0,
+			...CANDIDATE_SIZE
+		},
 		signal
 	);
 	const { hash, thumbHash } = await putImage(db, result.png);
@@ -1293,10 +1300,12 @@ const sheetHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const colorMode = s.context?.colorMode ?? 'bw';
 	const prompt = sheetPrompt(colorMode, view, version.guidance, textOf(s, 'setting'));
 	const inputs = sheetInputs(s);
+	const model = modelOf(db, s, version);
 	const result = await ai.image.edit(
 		{
-			model: modelOf(db, s, version),
+			model,
 			prompt,
+			negative: negativeFor(model, s.series),
 			images: [readAsset(reference.assetHash)],
 			seed: version.seed ?? 0
 		},

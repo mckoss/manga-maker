@@ -9,7 +9,15 @@ import { Worker } from './jobs';
 import { createUser } from './auth/users';
 import { getStyle, requestPictures, styleJobHandlers } from './styles';
 import { createSeries, startStyle } from './series';
-import { pictureModel, setSeriesImageModel, setUserImageModel } from './models';
+import {
+	negativeFor,
+	pictureModel,
+	seriesAvoid,
+	setSeriesAvoid,
+	setSeriesImageModel,
+	setUserImageModel
+} from './models';
+import { DEFAULT_AVOID } from '#lib/models.js';
 import { series } from './db/schema';
 import { eq } from 'drizzle-orm';
 
@@ -80,5 +88,24 @@ describe('image model choice', () => {
 		requestPictures(db, owner, styleId, 'all', { model: 'qwen-image' });
 		await worker.drain();
 		expect(shown().model).toBe('fake:qwen-image-2.1');
+	});
+
+	it('sends the series’ Avoid list only to the strong-prompt model', async () => {
+		expect(seriesAvoid(row())).toBe(DEFAULT_AVOID);
+		setSeriesAvoid(db, seriesId, '  color, text  ');
+		expect(row().avoid).toBe('color, text');
+		expect(negativeFor('qwen-image-2.1-strong', row())).toBe('color, text');
+		expect(negativeFor('qwen-image-2.1-full', row())).toBeUndefined();
+		setSeriesAvoid(db, seriesId, DEFAULT_AVOID);
+		expect(row().avoid).toBe('');
+
+		setSeriesImageModel(db, seriesId, 'qwen-image-2.1-strong');
+		setSeriesAvoid(db, seriesId, 'speech bubbles');
+		requestPictures(db, owner, styleId, 'action');
+		await worker.drain();
+		expect(image.calls.at(-1)).toMatchObject({
+			model: 'qwen-image-2.1-strong',
+			negative: 'speech bubbles'
+		});
 	});
 });
