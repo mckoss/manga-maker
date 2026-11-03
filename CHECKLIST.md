@@ -168,7 +168,26 @@ no behaviour.
       parsed value; an image's model, seed, request and filled workflow) as
       a content-addressed JSON asset (`versions.run_hash`, migration 0016),
       shown under a small "Details" disclosure in `VersionNav` (v0.26.0)
-- [ ] Fake text replies routed by prompt id
+- [x] Fake text replies routed by prompt id: `fakeReplies` is a table
+      exhaustive over `PromptId`, `FakeTextModel` hands its responder
+      `(messages, promptId)` and throws on a missing or unknown id, specs
+      use `byPrompt({...})` and `promptIds`; no fake matches on system-prompt
+      wording, so rewording a prompt can't break tests (v0.26.1)
+
+Refactor done (#33–#38 and the fake-reply routing): typed ids, the
+registry and generic engine; characters, locations, plots and styles on
+it; the prompt registry with ids and hashes on versions; run records on
+every AI-made version; fakes routed by prompt id.
+
+Follow-ups noticed along the way:
+
+- [ ] Plot jobs that find nothing to do (dropped versions, no structure
+      chosen) leave their placeholders pending, as before
+- [ ] `getLogo` applies the logo's inputs to every item in the series
+      scope, not just the logo
+- [ ] Plot steps' AI context (characters, places, earlier chapters) is not
+      recorded in their inputs, so a change there doesn't make them out of
+      date
 
 ## Next
 

@@ -123,7 +123,7 @@ describe('locations', () => {
 			'airy, open veranda',
 			'ruined, overgrown'
 		]);
-		const sent = text.calls.find((c) => c[0].content.includes('location scout'))![1].content;
+		const sent = text.calls[text.promptIds.indexOf('location.develop')][1].content;
 		expect(sent).toContain('the inn where the travelers meet');
 		expect(sent).toContain('Setting and look of the series: Edo-period villages');
 	});

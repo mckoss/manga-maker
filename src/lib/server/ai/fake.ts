@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import type { z } from 'zod';
 import type { EditRequest, ImageModel, ImageRequest, ImageResult } from './image';
+import { isPromptId, type PromptId } from '../prompts';
 import type { ChatMessage, TextModel, TextRequestOptions, TextRun } from './text';
 
 /**
@@ -43,14 +44,37 @@ export class FakeImageModel implements ImageModel {
 	}
 }
 
-/** Returns whatever `respond` produces for the conversation, validated by the schema. */
+/**
+ * Makes a fake reply to one request, chosen by the prompt id it was made
+ * under (never by the system prompt's wording, so rewording a prompt can't
+ * change which reply a test gets).
+ */
+export type FakeResponder = (messages: ChatMessage[], promptId: PromptId) => unknown;
+
+/** A reply maker for one prompt. */
+export type FakeReplyFn = (messages: ChatMessage[]) => unknown;
+
+/**
+ * A responder from a table of replies by prompt id. A request under a prompt
+ * the table leaves out throws, naming it, so a test never gets a reply it
+ * did not ask for.
+ */
+export function byPrompt(replies: Partial<Record<PromptId, FakeReplyFn>>): FakeResponder {
+	return (messages, promptId) => {
+		const reply = replies[promptId];
+		if (!reply) throw new Error(`The fake text model has no reply for prompt "${promptId}".`);
+		return reply(messages);
+	};
+}
+
+/** Returns whatever `respond` produces for the request, validated by the schema. */
 export class FakeTextModel implements TextModel {
 	readonly name = 'fake-text';
 	calls: ChatMessage[][] = [];
-	/** The prompt id of each call, alongside `calls` (undefined if none was given). */
-	promptIds: (string | undefined)[] = [];
+	/** The prompt id of each call, alongside `calls`. */
+	promptIds: PromptId[] = [];
 
-	constructor(private respond: (messages: ChatMessage[]) => unknown) {}
+	constructor(private respond: FakeResponder) {}
 
 	async json<T>(
 		messages: ChatMessage[],
@@ -58,9 +82,14 @@ export class FakeTextModel implements TextModel {
 		_signal?: AbortSignal,
 		options: TextRequestOptions = {}
 	): Promise<{ value: T; run: TextRun<T> }> {
+		const { promptId } = options;
+		if (promptId === undefined)
+			throw new Error('The fake text model needs a prompt id: ask it through askJson.');
+		if (!isPromptId(promptId))
+			throw new Error(`The fake text model got an unknown prompt id "${promptId}".`);
 		this.calls.push(messages);
-		this.promptIds.push(options.promptId);
-		const raw = this.respond(messages);
+		this.promptIds.push(promptId);
+		const raw = this.respond(messages, promptId);
 		const value = schema.parse(raw);
 		const reply = JSON.stringify(raw) ?? '';
 		return {

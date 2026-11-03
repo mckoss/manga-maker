@@ -426,8 +426,19 @@ signal)` (`prompts/ask.ts`): it puts `prompt(id).text` first as the
   (Ollama ignores it; `FakeTextModel` records it in `promptIds`), and
   returns `{ value, prompt: { promptId, promptHash }, run }`: the step
   spreads `prompt` into the version it finishes and stores `run` with
-  `putRun` as its `runHash`. That one place is where fake replies routed
-  by id (PR 7) plug in.
+  `putRun` as its `runHash`.
+- Fake replies (`AI_BACKEND=fake`, and the unit tests) are routed by
+  prompt id, never by the system prompt's wording: `fakeReplies` in
+  `ai/index.ts` is a `Record<PromptId, (messages) => unknown>`, so a new
+  prompt without a fake fails the type check, and `fakeReply` is
+  `byPrompt(fakeReplies)`. `FakeTextModel`'s responder gets
+  `(messages, promptId)`; a call without a prompt id, or with an unknown
+  one, throws, and `byPrompt({...})` throws for an id its table leaves
+  out. Specs build their own responders with `byPrompt` and find requests
+  through `promptIds`. A few fakes still read the user message (the
+  feedback, the beats to write, the writer's notes), so they depend on its
+  format. `ai/fake.spec.ts` checks every id has a fake and that a reworded
+  prompt (`setPromptOverride`) gets the same reply.
 - Run records (`src/lib/server/runs.ts`): every AI-made version made since
   v0.26.0 keeps a record of the call that made it, in `versions.run_hash`
   (null for the user's own versions and older ones). `TextModel.json`
@@ -466,7 +477,7 @@ height?, images? }, workflow }`: `workflow` is the filled backend input
   domains' `*Prompt()` builders and are not registered; image steps get
   run records instead.
 
-The refactor lands in small, behaviour-preserving PRs:
+The refactor landed in small, behaviour-preserving PRs:
 
 1. Typed ids, the registry and engine, and characters on `entityPipeline`
    (v0.23.1).
@@ -487,8 +498,12 @@ The refactor lands in small, behaviour-preserving PRs:
    replies, parse errors and retries, parsed value); images record the
    filled workflow, model and seed. Stored as a content-addressed JSON asset
    (`putAsset`, `versions.run_hash`), shown in a small Details disclosure in
-   `VersionNav`.
-7. Fake text replies routed by prompt id, replacing substring matching.
+   `VersionNav` (v0.26.0).
+7. Fake text replies routed by prompt id, replacing substring matching
+   (v0.26.1).
+
+All seven have landed (#33–#38 and the last), so the refactor is done.
+Follow-ups noticed along the way are in CHECKLIST.md.
 
 The logo stays outside the engine.
 
