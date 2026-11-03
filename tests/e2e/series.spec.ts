@@ -42,7 +42,7 @@ test('creates a series with a first chapter and walks their steps', async ({ sig
 	for (const step of CHAPTER_STEPS.slice(1)) {
 		await steps.getByRole('link', { name: step }).click();
 		await expect(page.getByRole('heading', { name: step, level: 1 })).toBeVisible();
-		await expect(page.getByText('Not built yet.')).toBeVisible();
+		if (step !== 'Plot') await expect(page.getByText('Not built yet.')).toBeVisible();
 	}
 
 	await steps.getByRole('link', { name: 'Ronin Road' }).click();

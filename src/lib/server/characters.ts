@@ -481,11 +481,23 @@ export function listCharacters(db: Db, ownerId: number, seriesId: number) {
 		db,
 		cast.map((c) => c.id)
 	);
-	return cast.map((c) => ({
-		...c,
-		thumb: refs.get(c.id)?.thumbHash ?? null,
-		hasReference: refs.has(c.id)
-	}));
+	return cast.map((c) => {
+		const current = currentVersions(db, characterScope(c.id));
+		const has = (slot: string) => Boolean(current.get(slot));
+		return {
+			...c,
+			thumb: refs.get(c.id)?.thumbHash ?? null,
+			hasReference: refs.has(c.id),
+			/** What is still to do to make the character drawable, in order. */
+			todo: [
+				{ step: 'Profile', done: has('personality') && has('appearance') },
+				{ step: 'Designs', done: DESIGN_KEYS.some((k) => has(`design:${k}`)) },
+				{ step: 'Design pictures', done: DESIGN_KEYS.some((k) => has(`picture:${k}`)) },
+				{ step: 'Reference chosen', done: refs.has(c.id) },
+				{ step: 'Character sheet', done: SHEET_VIEWS.some((v) => has(`sheet:${v.key}`)) }
+			]
+		};
+	});
 }
 
 const emptyView = (kind: string, key = ''): ItemView => ({
@@ -630,7 +642,9 @@ export function createCharacter(
 	ownerId: number,
 	seriesId: number,
 	input: NewCharacter,
-	chapterId?: number
+	chapterId?: number,
+	/** False adds the character with nothing generated yet, to be developed later. */
+	develop = true
 ): number {
 	const owner = ownedSeries(db, ownerId, seriesId);
 	if (chapterId !== undefined) {
@@ -670,7 +684,7 @@ export function createCharacter(
 		db.insert(chapterCast).values({ chapterId, characterId: character.id, createdAt: now }).run();
 	}
 	touchSeries(db, seriesId);
-	updateOutdated(db, ownerId, character.id, ['profile', 'designs']);
+	if (develop) updateOutdated(db, ownerId, character.id, ['profile', 'designs']);
 	return character.id;
 }
 
@@ -1188,6 +1202,14 @@ const developHandler: JobHandler = async (job, { db, ai, signal }) => {
 		if (text)
 			finishVersion(db, id, { text, inputs, notes: reply.notes.trim(), model: ai.text.name });
 		else abandonVersion(db, id);
+	}
+	// The first name a character gets is canonical: the plot and dialogue use
+	// it, so the AI doesn't rename them later unless the user unlocks it.
+	if (rewrite.includes('name')) {
+		const name = ensureItem(db, s.series.ownerId, characterScope(characterId), 'name');
+		if (name.currentVersionId !== null && !name.locked) {
+			db.update(items).set({ locked: true }).where(eq(items.id, name.id)).run();
+		}
 	}
 	syncCharacter(db, characterId);
 	advance(db, characterId, after('profile', cascade));

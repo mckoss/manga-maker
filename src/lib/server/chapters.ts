@@ -3,6 +3,7 @@ import type { Db } from './db';
 import { chapterCast, chapters, characters, versions, type Chapter } from './db/schema';
 import { references } from './characters';
 import { ownedSeries, touchSeries } from './series';
+import { deleteScope } from './versions';
 
 export class ChapterError extends Error {}
 
@@ -97,6 +98,8 @@ export function updateChapter(
 export function deleteChapter(db: Db, ownerId: number, seriesId: number, chapterId: number): void {
 	const chapter = ownedChapter(db, ownerId, seriesId, chapterId);
 	db.transaction(() => {
+		// Its plot and script are versioned items in the chapter's scope.
+		deleteScope(db, `chapter:${chapterId}`);
 		db.delete(chapters).where(eq(chapters.id, chapterId)).run();
 		db.update(chapters)
 			.set({ number: sql`${chapters.number} - 1` })
