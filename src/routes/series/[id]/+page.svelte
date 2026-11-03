@@ -128,6 +128,26 @@
 				</label>
 			{/each}
 		</fieldset>
+		<label>
+			Image model
+			<select name="imageModel">
+				<option value="" selected={!data.imageModel.fromSeries}
+					>Your default ({data.userImageModel})</option
+				>
+				{#each data.imageModels as m (m.value)}
+					<option
+						value={m.value}
+						selected={data.imageModel.fromSeries && data.imageModel.value === m.value}
+						>{m.label} — {m.edits}</option
+					>
+				{/each}
+			</select>
+		</label>
+		<span class="hint"
+			>Draws every new picture in this series. Pictures already made keep the model that made them;
+			regenerate one to use another. Set your default on your
+			<a href={resolve('/account')}>account</a> page.</span
+		>
 		<button type="submit">Save</button>
 	</form>
 </section>

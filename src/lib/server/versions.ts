@@ -83,6 +83,8 @@ export interface VersionContent {
 	inputs?: Record<string, string>;
 	notes?: string;
 	guidance?: string;
+	/** The exact model that made it (see MODEL_LABELS). */
+	model?: string;
 }
 
 /**
@@ -124,7 +126,7 @@ export function addVersion(
 export function startVersion(
 	db: Db,
 	item: Item,
-	opts: { seed?: number | null; guidance?: string } = {}
+	opts: { seed?: number | null; guidance?: string; model?: string } = {}
 ): Version {
 	if (item.locked) throw new VersionError('It is locked. Unlock it to regenerate it.');
 	dropPending(db, [item.id]);
@@ -136,6 +138,7 @@ export function startVersion(
 			origin: 'ai',
 			seed: opts.seed ?? null,
 			guidance: opts.guidance?.trim() ?? '',
+			model: opts.model ?? '',
 			createdAt: new Date()
 		})
 		.returning()
@@ -323,6 +326,8 @@ export interface VersionView {
 	seed: number | null;
 	notes: string;
 	guidance: string;
+	/** The model that made it; empty for the user's own and older versions. */
+	model: string;
 	createdAt: Date;
 	/** Labels of the inputs that changed since this version was made, or [UNRECORDED]. */
 	outOfDate: string[];
@@ -391,6 +396,7 @@ export function describeScope(
 					seed: v.seed,
 					notes: v.notes,
 					guidance: v.guidance,
+					model: v.model,
 					createdAt: v.createdAt,
 					outOfDate: !now
 						? []

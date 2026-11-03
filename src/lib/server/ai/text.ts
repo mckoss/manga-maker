@@ -6,6 +6,8 @@ export interface ChatMessage {
 }
 
 export interface TextModel {
+	/** The model's own name, recorded on what it writes. */
+	readonly name: string;
 	/** Ask for a JSON reply and return it parsed and validated against `schema`. */
 	json<T>(messages: ChatMessage[], schema: z.ZodType<T>, signal?: AbortSignal): Promise<T>;
 }

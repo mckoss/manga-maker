@@ -17,7 +17,6 @@
 		logo={data.logo}
 		logline={data.series.logline}
 		colorModes={data.colorModes}
-		models={data.models}
 		{form}
 	/>
 {:else}
@@ -49,20 +48,10 @@
 					{/each}
 				</select>
 			</label>
-			<label>
-				Image model
-				<select name="model">
-					{#each data.models as model (model.value)}
-						<option value={model.value} selected={model.value === 'qwen-image'}
-							>{model.label}</option
-						>
-					{/each}
-				</select>
-			</label>
 		</div>
 		<span class="hint"
-			>Qwen-Image follows style descriptions closely; Z-Image gives a cleaner, flatter printed-page
-			look.</span
+			>Drawn with {data.imageModel.label}; choose another image model in the
+			<a href={resolve('/series/[id]', { id: String(data.series.id) })}>series settings</a>.</span
 		>
 		<button type="submit">Start the style</button>
 	</form>

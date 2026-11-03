@@ -12,6 +12,10 @@ export class Ollama implements TextModel {
 		private baseUrl = process.env.OLLAMA_URL ?? 'http://127.0.0.1:11434'
 	) {}
 
+	get name(): string {
+		return this.model;
+	}
+
 	private async chat(messages: ChatMessage[], signal?: AbortSignal): Promise<string> {
 		let res: Response;
 		try {

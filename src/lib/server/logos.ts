@@ -10,6 +10,8 @@ import { and, eq } from 'drizzle-orm';
 import type { Db } from './db';
 import { characters, series, versions, type ColorMode, type Series } from './db/schema';
 import { randomSeed } from './ai/image';
+import { isImageModel } from '#lib/models.js';
+import { pictureModel } from './models';
 import { putImage, readAsset } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import { references } from './characters';
@@ -172,7 +174,7 @@ export function requestLogo(
 	db: Db,
 	ownerId: number,
 	seriesId: number,
-	opts: { guidance?: string; seed?: number | null } = {}
+	opts: { guidance?: string; seed?: number | null; model?: string } = {}
 ): void {
 	const row = ownedSeries(db, ownerId, seriesId);
 	const style = row.styleId ? drawingStyle(db, row.styleId) : undefined;
@@ -184,7 +186,8 @@ export function requestLogo(
 	try {
 		const version = startVersion(db, item, {
 			seed: opts.seed ?? randomSeed(),
-			guidance: opts.guidance
+			guidance: opts.guidance,
+			model: pictureModel(db, row, opts.model)
 		});
 		const job = enqueue(db, ownerId, 'series.logo', { seriesId, versionId: version.id });
 		attachJob(db, [version.id], job.id);
@@ -231,9 +234,16 @@ const logoHandler: JobHandler = async (job, { db, ai, signal }) => {
 		version.guidance,
 		src.place ? src.place.what || src.place.name || 'the series’ main location' : ''
 	);
-	const result = await ai.image.edit({ prompt, images, seed: version.seed ?? 0 }, signal);
+	const model = isImageModel(version.model) ? version.model : pictureModel(db, row);
+	const result = await ai.image.edit({ model, prompt, images, seed: version.seed ?? 0 }, signal);
 	const { hash, thumbHash } = await putImage(db, result.png);
-	finishVersion(db, versionId, { text: prompt, assetHash: hash, thumbHash, inputs: inputsOf(src) });
+	finishVersion(db, versionId, {
+		text: prompt,
+		assetHash: hash,
+		thumbHash,
+		inputs: inputsOf(src),
+		model: result.model
+	});
 	touchSeries(db, seriesId);
 };
 

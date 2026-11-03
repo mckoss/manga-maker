@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import type { PageProps } from './$types';
 
-	let { form }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 </script>
 
 <svelte:head><title>Account · Manga Maker</title></svelte:head>
@@ -10,10 +10,29 @@
 <h1>Account</h1>
 <p>Signed in as <strong>{page.data.user?.username}</strong>.</p>
 
+{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
+{#if form?.message}<p class="ok" role="status">{form.message}</p>{/if}
+
+<form method="POST" action="?/imageModel" class="card">
+	<h2>Default image model</h2>
+	<label>
+		Image model
+		<select name="imageModel">
+			{#each data.imageModels as m (m.value)}
+				<option value={m.value} selected={data.imageModel === m.value}>{m.label} — {m.edits}</option
+				>
+			{/each}
+		</select>
+	</label>
+	<p class="hint">
+		Draws your pictures unless a series chooses its own (in its settings) or you choose one next to
+		a picture's Regenerate button.
+	</p>
+	<button type="submit">Save</button>
+</form>
+
 <form method="POST" action="?/password" class="card">
 	<h2>Change password</h2>
-	{#if form?.error}<p class="error" role="alert">{form.error}</p>{/if}
-	{#if form?.message}<p class="ok">{form.message}</p>{/if}
 	<label>
 		Current password
 		<input name="current" type="password" autocomplete="current-password" required />

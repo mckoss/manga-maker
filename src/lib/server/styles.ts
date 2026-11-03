@@ -10,7 +10,9 @@ import {
 	type Style,
 	type Version
 } from './db/schema';
-import { IMAGE_MODELS, randomSeed, type ImageModelId } from './ai/image';
+import { randomSeed } from './ai/image';
+import { isImageModel } from '#lib/models.js';
+import { styleImageModel } from './models';
 import { putImage } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import {
@@ -124,17 +126,12 @@ const INPUT_LABELS: Record<string, string> = {
 	description: 'the description',
 	avoid: 'the keep-out list',
 	color: 'the color mode',
-	model: 'the image model',
 	prompt: 'the style prompt',
 	scene: 'the scene'
 };
 
 export function isColorMode(value: string): value is ColorMode {
 	return value in COLOR_MODES;
-}
-
-export function isImageModel(value: string): value is ImageModelId {
-	return value in IMAGE_MODELS;
 }
 
 export function isSubject(value: string): value is SubjectKey {
@@ -253,8 +250,7 @@ const sceneInputs = (s: StyleState) => ({ description: s.description, avoid: s.a
 const pictureInputs = (s: StyleState, key: string) => ({
 	prompt: s.prompt,
 	scene: s.scenes[key] ?? '',
-	color: s.style.colorMode,
-	model: s.style.model
+	color: s.style.colorMode
 });
 
 /** What a new version of an item would be made from; null for the user's own inputs. */
@@ -322,12 +318,11 @@ export function listStyles(db: Db, ownerId: number) {
 		});
 }
 
-/** What the rest of the manga is drawn in: the current prompt, color mode and model. */
+/** What the rest of the manga is drawn in: the current prompt and color mode. */
 export interface DrawingStyle {
 	styleId: number;
 	description: string;
 	colorMode: ColorMode;
-	model: ImageModelId;
 	prompt: string;
 	promptVersionId: number | null;
 	ready: boolean;
@@ -341,7 +336,6 @@ export function drawingStyle(db: Db, styleId: number): DrawingStyle | undefined 
 		styleId,
 		description: state.description,
 		colorMode: style.colorMode,
-		model: style.model as ImageModelId,
 		prompt: state.prompt,
 		promptVersionId: state.promptVersionId,
 		ready: isReady(state)
@@ -421,7 +415,6 @@ export interface StyleInput {
 	name: string;
 	description: string;
 	colorMode: ColorMode;
-	model: ImageModelId;
 }
 
 /** Create a style from a description, and ask the AI to write its prompt and scenes. */
@@ -436,7 +429,6 @@ export function createStyle(db: Db, ownerId: number, input: StyleInput): number 
 			ownerId,
 			name,
 			colorMode: input.colorMode,
-			model: input.model,
 			createdAt: new Date()
 		})
 		.returning()
@@ -467,7 +459,6 @@ export function copyStyle(db: Db, ownerId: number, fromStyleId: number, name: st
 				ownerId,
 				name,
 				colorMode: source.colorMode,
-				model: source.model,
 				createdAt: new Date()
 			})
 			.returning()
@@ -484,7 +475,8 @@ export function copyStyle(db: Db, ownerId: number, fromStyleId: number, name: st
 				seed: version.seed,
 				inputs: version.inputs,
 				notes: version.notes,
-				guidance: version.guidance
+				guidance: version.guidance,
+				model: version.model
 			});
 			if (item.locked) {
 				db.update(itemsTable).set({ locked: true }).where(eq(itemsTable.id, copy.id)).run();
@@ -506,12 +498,12 @@ export function deleteStyle(db: Db, ownerId: number, styleId: number): void {
 	db.delete(styles).where(eq(styles.id, styleId)).run();
 }
 
-/** Change the color mode or image model. They are settings, not versioned. */
+/** Change the color mode. It is a setting, not versioned. */
 export function saveSettings(
 	db: Db,
 	ownerId: number,
 	styleId: number,
-	settings: { colorMode: ColorMode; model: ImageModelId }
+	settings: { colorMode: ColorMode }
 ): void {
 	ownedStyle(db, ownerId, styleId);
 	db.update(styles).set(settings).where(eq(styles.id, styleId)).run();
@@ -626,6 +618,9 @@ export function requestPrompt(db: Db, ownerId: number, styleId: number, guidance
  */
 export type Which = 'outdated' | 'all' | SubjectKey;
 
+/** One picture asked for by name: its own seed, guidance and model apply. */
+const single = (which: Which) => which !== 'all' && which !== 'outdated';
+
 function chooseSubjects(
 	db: Db,
 	ownerId: number,
@@ -684,10 +679,11 @@ export function requestPictures(
 	ownerId: number,
 	styleId: number,
 	which: Which,
-	opts: { seed?: number; guidance?: string } = {}
+	opts: { seed?: number; guidance?: string; model?: string } = {}
 ): number {
 	const style = ownedStyle(db, ownerId, styleId);
 	let state = stateOf(db, style);
+	const model = styleImageModel(db, ownerId, styleId, single(which) ? opts.model : undefined);
 	const chosen = chooseSubjects(db, ownerId, state, 'picture', which);
 	if (!chosen.length) return 0;
 	const scope = styleScope(styleId);
@@ -701,14 +697,15 @@ export function requestPictures(
 		.filter((key) => !state.scenes[key] && !waiting('scene', key));
 	for (const key of unwritten) requestScenes(db, ownerId, styleId, key as SubjectKey);
 	state = stateOf(db, style);
-	const single = which !== 'all' && which !== 'outdated';
+	const one = single(which);
 	return run(
 		() =>
 			chosen.map(({ subject, item }) => {
 				const current = state.current.get(`picture:${subject.key}`);
 				const version = startVersion(db, item, {
-					seed: (single ? opts.seed : undefined) ?? current?.seed ?? randomSeed(),
-					guidance: single ? (opts.guidance ?? '') : (current?.guidance ?? '')
+					seed: (one ? opts.seed : undefined) ?? current?.seed ?? randomSeed(),
+					guidance: one ? (opts.guidance ?? '') : (current?.guidance ?? ''),
+					model
 				});
 				const job = enqueue(db, ownerId, 'style.picture', { styleId, versionId: version.id });
 				attachJob(db, [version.id], job.id);
@@ -823,7 +820,8 @@ const promptHandler: JobHandler = async (job, { db, ai, signal }) => {
 	finishVersion(db, versionId, {
 		text: positiveOnly(reply.prompt.trim()),
 		notes: reply.notes.trim(),
-		inputs: promptInputs(state)
+		inputs: promptInputs(state),
+		model: ai.text.name
 	});
 };
 
@@ -848,7 +846,12 @@ const scenesHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const missing: string[] = [];
 	for (const { key, versionId } of targets) {
 		const scene = cleanAiScene(key, reply.scenes[key] ?? '');
-		if (scene) finishVersion(db, versionId, { text: scene, inputs: sceneInputs(state) });
+		if (scene)
+			finishVersion(db, versionId, {
+				text: scene,
+				inputs: sceneInputs(state),
+				model: ai.text.name
+			});
 		else missing.push(key);
 	}
 	if (missing.length) throw new Error(`The AI did not write the ${missing.join(', ')} scene.`);
@@ -870,7 +873,9 @@ const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
 	);
 	const result = await ai.image.generate(
 		{
-			model: target.style.model as ImageModelId,
+			model: isImageModel(target.version.model)
+				? target.version.model
+				: styleImageModel(db, target.style.ownerId, target.style.id),
 			prompt,
 			seed,
 			width: SAMPLE_SIZE,
@@ -884,7 +889,8 @@ const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
 		assetHash: hash,
 		thumbHash,
 		seed,
-		inputs: pictureInputs(state, key)
+		inputs: pictureInputs(state, key),
+		model: result.model
 	});
 };
 
@@ -941,7 +947,11 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 			.filter(Boolean)
 			.slice(0, 4)
 	}));
-	finishVersion(db, versionId, { text: JSON.stringify(list), inputs: questionInputs(state) });
+	finishVersion(db, versionId, {
+		text: JSON.stringify(list),
+		inputs: questionInputs(state),
+		model: ai.text.name
+	});
 };
 
 const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
@@ -956,7 +966,8 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	);
 	finishVersion(db, versionId, {
 		text: reply.description.trim(),
-		notes: 'Your answers, folded into the description.'
+		notes: 'Your answers, folded into the description.',
+		model: ai.text.name
 	});
 	// The questions were about the old description; they are now answered.
 	const questions = ensureItem(db, target.item.ownerId, styleScope(styleId), 'questions');

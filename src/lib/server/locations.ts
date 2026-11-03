@@ -13,6 +13,8 @@ import {
 	type Version
 } from './db/schema';
 import { randomSeed } from './ai/image';
+import { isImageModel } from '#lib/models.js';
+import { pictureModel } from './models';
 import { putImage, readAsset } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import { ownedSeries, touchSeries } from './series';
@@ -143,7 +145,6 @@ const INPUT_LABELS: Record<string, string> = {
 	design: 'the design',
 	style: 'the style prompt',
 	color: 'the color mode',
-	model: 'the image model',
 	reference: 'the reference picture'
 };
 
@@ -282,9 +283,12 @@ const lookInputs = (s: LocationState) => ({
 
 const styleInputs = (s: LocationState) => ({
 	style: String(s.ready?.promptVersionId ?? ''),
-	color: s.ready?.colorMode ?? '',
-	model: s.ready?.model ?? ''
+	color: s.ready?.colorMode ?? ''
 });
+
+/** The model chosen when a picture was asked for; for older pending ones, the series'. */
+const modelOf = (db: Db, s: LocationState, version: Version) =>
+	isImageModel(version.model) ? version.model : pictureModel(db, s.series);
 
 const pictureInputs = (s: LocationState, key: string) => ({
 	design: textOf(s, `design:${key}`),
@@ -712,6 +716,8 @@ export function saveDesign(
 interface Start {
 	guidance?: string;
 	seed?: number | null;
+	/** A picture's image model, chosen with its Regenerate button; else the series'. */
+	model?: string;
 	cascade?: Stage[];
 }
 
@@ -783,7 +789,8 @@ function startPictures(db: Db, s: LocationState, keys: DesignKey[], opts: Start 
 						: (current?.seed ?? s.location.seed + DESIGN_KEYS.indexOf(key)));
 				const version = startVersion(db, item(db, s, 'picture', key), {
 					seed,
-					guidance: opts.guidance
+					guidance: opts.guidance,
+					model: pictureModel(db, s.series, opts.model)
 				});
 				const job = enqueue(db, s.series.ownerId, 'location.picture', {
 					locationId: s.location.id,
@@ -809,7 +816,8 @@ function startSheet(db: Db, s: LocationState, views: SheetView[], opts: Start = 
 			views.map((view, i) => {
 				const version = startVersion(db, item(db, s, 'sheet', view), {
 					seed: seed + i,
-					guidance: opts.guidance
+					guidance: opts.guidance,
+					model: pictureModel(db, s.series, opts.model)
 				});
 				const job = enqueue(db, s.series.ownerId, 'location.sheet', {
 					locationId: s.location.id,
@@ -894,7 +902,7 @@ export function requestPictures(
 	db: Db,
 	ownerId: number,
 	locationId: number,
-	opts: { keys?: DesignKey[]; guidance?: string; seed?: number | null } = {}
+	opts: { keys?: DesignKey[]; guidance?: string; seed?: number | null; model?: string } = {}
 ): number {
 	const s = ownedState(db, ownerId, locationId);
 	if (!s.ready) throw new LocationError(NO_STYLE);
@@ -902,7 +910,12 @@ export function requestPictures(
 	const keys =
 		opts.keys ??
 		DESIGN_KEYS.filter((k) => s.current.get(`design:${k}`) && !views.get(`picture:${k}`)?.locked);
-	return startPictures(db, s, keys, { guidance: opts.guidance, seed: opts.seed });
+	return startPictures(db, s, keys, {
+		guidance: opts.guidance,
+		seed: opts.seed,
+		// One picture asked for by name draws with the model chosen for it.
+		model: opts.keys?.length === 1 ? opts.model : undefined
+	});
 }
 
 /** Redraw sheet views from the reference: every unlocked view, or just one. */
@@ -912,10 +925,11 @@ export function requestSheet(
 	locationId: number,
 	only?: SheetView,
 	guidance = '',
-	seed: number | null = null
+	seed: number | null = null,
+	model?: string
 ): number {
 	const s = ownedState(db, ownerId, locationId);
-	if (only) return startSheet(db, s, [only], { guidance, seed });
+	if (only) return startSheet(db, s, [only], { guidance, seed, model });
 	const views = describeScope(db, locationScope(locationId), () => null, {});
 	return startSheet(
 		db,
@@ -1117,7 +1131,8 @@ const developHandler: JobHandler = async (job, { db, ai, signal }) => {
 		const id = versionIds[kind]!;
 		const raw = reply[kind].trim();
 		const text = (LOOK_KINDS as readonly string[]).includes(kind) ? positiveOnly(raw) : raw;
-		if (text) finishVersion(db, id, { text, inputs, notes: reply.notes.trim() });
+		if (text)
+			finishVersion(db, id, { text, inputs, notes: reply.notes.trim(), model: ai.text.name });
 		else abandonVersion(db, id);
 	}
 	syncLocation(db, locationId);
@@ -1223,7 +1238,8 @@ const designsHandler: JobHandler = async (job, { db, ai, signal }) => {
 				appearance: positiveOnly(d?.appearance.trim() || textOf(s, 'appearance')),
 				details: positiveOnly(d?.details.trim() || textOf(s, 'details'))
 			}),
-			inputs
+			inputs,
+			model: ai.text.name
 		});
 	});
 	advance(db, locationId, after('designs', cascade));
@@ -1249,11 +1265,17 @@ const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
 	);
 	const inputs = pictureInputs(s, key);
 	const result = await ai.image.generate(
-		{ model: s.ready.model, prompt, seed: version.seed ?? 0, ...CANDIDATE_SIZE },
+		{ model: modelOf(db, s, version), prompt, seed: version.seed ?? 0, ...CANDIDATE_SIZE },
 		signal
 	);
 	const { hash, thumbHash } = await putImage(db, result.png);
-	finishVersion(db, versionId, { text: prompt, assetHash: hash, thumbHash, inputs });
+	finishVersion(db, versionId, {
+		text: prompt,
+		assetHash: hash,
+		thumbHash,
+		inputs,
+		model: result.model
+	});
 	advance(db, locationId, after('pictures', cascade));
 };
 
@@ -1272,11 +1294,22 @@ const sheetHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const prompt = sheetPrompt(colorMode, view, version.guidance, textOf(s, 'setting'));
 	const inputs = sheetInputs(s);
 	const result = await ai.image.edit(
-		{ prompt, images: [readAsset(reference.assetHash)], seed: version.seed ?? 0 },
+		{
+			model: modelOf(db, s, version),
+			prompt,
+			images: [readAsset(reference.assetHash)],
+			seed: version.seed ?? 0
+		},
 		signal
 	);
 	const { hash, thumbHash } = await putImage(db, result.png);
-	finishVersion(db, versionId, { text: prompt, assetHash: hash, thumbHash, inputs });
+	finishVersion(db, versionId, {
+		text: prompt,
+		assetHash: hash,
+		thumbHash,
+		inputs,
+		model: result.model
+	});
 };
 
 export const locationJobHandlers: Record<string, JobHandler> = {

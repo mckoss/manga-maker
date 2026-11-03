@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { page } from '$app/state';
 	import type { ItemView } from '#lib/server/versions.js';
 	import { outOfDateText } from './labels.js';
 	import Icon from './Icon.svelte';
@@ -44,13 +45,20 @@
 	let current = $derived(item.versions.find((v) => v.id === item.currentId));
 	let outOfDate = $derived(current?.outOfDate ?? []);
 	let amendment = $state('');
+	/** A picture's image model for this round; empty uses the series'. */
+	let modelValue = $state('');
+	/** The series' model and the choices, from the series layout (absent elsewhere). */
+	let models = $derived(
+		seed ? (page.data.imageModels as { value: string; label: string }[] | undefined) : undefined
+	);
+	let seriesModel = $derived(page.data.imageModel as { value: string; label: string } | undefined);
 	let seedValue = $state<string | null>(null);
 	let seedNow = $derived(seedValue ?? (current?.seed != null ? String(current.seed) : ''));
 	let seedChanged = $derived(
 		seed && seedValue !== null && seedValue !== String(current?.seed ?? '')
 	);
 	let offered = $derived(
-		!current || outOfDate.length > 0 || amendment.trim() !== '' || seedChanged
+		!current || outOfDate.length > 0 || amendment.trim() !== '' || seedChanged || modelValue !== ''
 	);
 	/** A new random seed, as large as the image models accept. */
 	const dice = () => (seedValue = String(Math.floor(Math.random() * 2 ** 48)));
@@ -67,6 +75,7 @@
 			async ({ update }) => {
 				amendment = '';
 				seedValue = null;
+				modelValue = '';
 				await update();
 			}}
 	>
@@ -111,6 +120,19 @@
 							aria-label="New random seed for {label}"><Icon name="dices" size={15} /></button
 						>
 					</span>
+				{/if}
+				{#if models && seriesModel}
+					<select
+						name="model"
+						class="model"
+						bind:value={modelValue}
+						aria-label="Image model for {label}"
+					>
+						<option value="">{seriesModel.label} (series)</option>
+						{#each models.filter((m) => m.value !== seriesModel.value) as m (m.value)}
+							<option value={m.value}>{m.label}</option>
+						{/each}
+					</select>
 				{/if}
 			</div>
 			{#if offered}
@@ -177,5 +199,10 @@
 		flex: none;
 		width: 32px;
 		padding: 0;
+	}
+	.model {
+		width: 100%;
+		min-width: 0;
+		font-size: 13px;
 	}
 </style>
