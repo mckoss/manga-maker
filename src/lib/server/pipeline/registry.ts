@@ -49,9 +49,12 @@ export interface StepRunContext<S> {
 
 /**
  * Make the slots of a job. Returns content by slot key; null (or a slot
- * left out) drops that slot's pending version.
+ * left out) drops that slot's pending version. Returning null for the whole
+ * job says it had nothing to do (its versions were dropped, or the state no
+ * longer allows it): its versions are left as they are, and neither
+ * `afterFinish` nor the cascade runs.
  */
-export type StepRun<S> = (ctx: StepRunContext<S>) => Promise<Map<string, StepOutput | null>>;
+export type StepRun<S> = (ctx: StepRunContext<S>) => Promise<Map<string, StepOutput | null> | null>;
 
 /** Options for the versions a start makes. */
 export interface StartOpts {
@@ -121,8 +124,12 @@ export interface Stage<S extends PipelineState> {
 		opts: StartOpts;
 		snapshot: () => Snapshot;
 	}): VersionOpts[];
-	/** The job that makes the stage: one for all its slots, or one per slot. */
-	job?: { kind: string; per: 'stage' | 'slot'; run: StepRun<S> };
+	/**
+	 * The job that makes the stage: one for all its slots, or one per slot.
+	 * A per-stage payload names its slots by key ("1"), or by the whole slot
+	 * ("beat:hook") with `payloadKeys: 'slot'`; either form is read back.
+	 */
+	job?: { kind: string; per: 'stage' | 'slot'; run: StepRun<S>; payloadKeys?: 'key' | 'slot' };
 	/** Carry the cascade on once a job finishes (default true). */
 	cascades?: boolean;
 	/**
@@ -142,6 +149,12 @@ export interface Pipeline<S extends PipelineState> {
 	stages: Stage<S>[];
 	/** Names of inputs, to say why something is out of date. */
 	labels: Record<string, string>;
+	/**
+	 * What items no stage makes are made from (a clarify flow's questions,
+	 * made outside the engine), so they too go out of date; null (the
+	 * default) for the user's own.
+	 */
+	inputsOutside?(s: S, slot: SlotRef): Inputs | null;
 	/** The domain's error for a message (a VersionError from starting, say). */
 	error?(message: string): Error;
 }

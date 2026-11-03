@@ -53,7 +53,8 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 
 	/** What a new version of a slot would be made from; null for the user's own inputs. */
 	function inputsFor(s: S, ref: SlotRef): Inputs | null {
-		return stageOfKind.get(ref.kind)?.inputs(s, ref) ?? null;
+		const st = stageOfKind.get(ref.kind);
+		return st ? st.inputs(s, ref) : (p.inputsOutside?.(s, ref) ?? null);
 	}
 
 	/** Where every item stands, from one scan of the scope; statuses are memoised. */
@@ -134,11 +135,17 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 
 	/**
 	 * A per-stage job's name for a slot, as its payload has always keyed
-	 * them: the key when the stage's kind has keys ("1"), else the kind.
+	 * them: the key when the stage's kind has keys ("1"), else the kind; or
+	 * the whole slot ("beat:hook") where the stage says so.
 	 */
-	const labelOf = (ref: SlotRef) => ref.key ?? ref.kind;
+	const labelOf = (st: Stage<S>, ref: SlotRef) =>
+		st.job?.payloadKeys === 'slot' ? slotKey(ref) : (ref.key ?? ref.kind);
 	const refOfLabel = (st: Stage<S>, label: string) =>
-		st.kinds.includes(label) ? slot(label) : slot(st.kinds[0], label);
+		label.includes(':')
+			? parseSlot(label)
+			: st.kinds.includes(label)
+				? slot(label)
+				: slot(st.kinds[0], label);
 
 	/**
 	 * Start versions of these slots and queue the job that makes them. The
@@ -166,7 +173,7 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 				);
 				const queued = enqueue(db, s.ownerId, job.kind, {
 					[idField]: s.id,
-					versionIds: Object.fromEntries(started.map(([ref, id]) => [labelOf(ref), id])),
+					versionIds: Object.fromEntries(started.map(([ref, id]) => [labelOf(st, ref), id])),
 					guidance: opts.guidance?.trim() ?? '',
 					cascade
 				});
@@ -256,6 +263,7 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 				slots: slots.map(({ ref, version }) => ({ ref, version })),
 				guidance: payload.guidance ?? ''
 			});
+			if (!made) return; // nothing to do: leave the versions, no cascade
 			for (const { ref, id: versionId } of slots) {
 				const content = made.get(slotKey(ref));
 				if (content) finishVersion(db, versionId, { inputs: st.inputs(state, ref), ...content });

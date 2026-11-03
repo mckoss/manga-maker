@@ -39,6 +39,7 @@ const run =
 	(stage: string): StepRun<S> =>
 	async ({ state, slots }) => {
 		runs.push({ stage, slots: slots.map((x) => slotKey(x.ref)) });
+		if (refuse.has(`${stage}:skip`)) return null;
 		const out = new Map<string, StepOutput | null>();
 		for (const { ref } of slots) {
 			const key = slotKey(ref);
@@ -278,5 +279,53 @@ describe('pipeline engine', () => {
 		// Run in slot order, whatever order they were asked for in.
 		expect(runs.at(-1)!.slots).toEqual(['b:1', 'b:2']);
 		expect(statusOf('b:1', 'b:2')).toEqual(['ok', 'ok']);
+	});
+
+	it('leaves a job’s versions alone, without afterFinish or cascade, when its run does nothing', async () => {
+		refuse = new Set(['a:skip']);
+		flow.advance(db, ID, ALL);
+		await drain();
+		expect(runs).toEqual([{ stage: 'a', slots: ['a'] }]);
+		expect(finished).toEqual([]);
+		// The version stays pending (its job is done, so the item isn't busy).
+		expect(db.select().from(versions).where(eq(versions.status, 'pending')).all()).toHaveLength(1);
+		expect(statusOf('a', 'b:1')).toEqual(['missing', 'missing']);
+	});
+
+	it('keys a per-stage payload by whole slots when asked, and reads either form back', async () => {
+		flow.advance(db, ID, ['a']);
+		await drain();
+		const bySlot = engine({
+			...pipeline,
+			stages: pipeline.stages.map((st) =>
+				st.id === 'b'
+					? { ...st, job: { ...st.job!, per: 'stage' as const, payloadKeys: 'slot' as const } }
+					: st
+			)
+		});
+		bySlot.start(db, state(), 'b', [slot('b', '1'), slot('b', '2')]);
+		const job = db.select().from(jobs).where(eq(jobs.kind, 'test.b')).get()!;
+		expect(Object.keys((job.payload as { versionIds: object }).versionIds)).toEqual(['b:1', 'b:2']);
+		await new Worker(db, {} as AiServices, bySlot.handlers()).drain();
+		expect(runs.at(-1)!.slots).toEqual(['b:1', 'b:2']);
+		expect(statusOf('b:1', 'b:2')).toEqual(['ok', 'ok']);
+	});
+
+	it('takes the inputs of items no stage makes from the pipeline', () => {
+		const outside = engine({
+			...pipeline,
+			inputsOutside: (s, ref) => (ref.kind === 'asked' ? { src: text(s, 'src') } : null)
+		});
+		expect(outside.inputsFor(state(), slot('asked'))).toEqual({ src: 'one' });
+		expect(outside.inputsFor(state(), slot('src'))).toBeNull();
+		addVersion(db, itemOf('asked'), {
+			origin: 'ai',
+			text: 'q',
+			inputs: { src: 'one' }
+		});
+		setSource('two');
+		const views = outside.describe(db, state(), pipeline.labels).views;
+		const asked = views.get('asked')!;
+		expect(asked.versions.find((v) => v.id === asked.currentId)!.outOfDate).toEqual(['the source']);
 	});
 });

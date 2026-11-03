@@ -9,7 +9,7 @@ import { fakeReply } from './ai';
 import { Worker } from './jobs';
 import { createUser } from './auth/users';
 import { createSeries } from './series';
-import { chapters } from './db/schema';
+import { chapters, jobs, versions } from './db/schema';
 import { listCharacters } from './characters';
 import {
 	answerQuestions,
@@ -150,5 +150,31 @@ describe('chapter plot', () => {
 		const request = text.calls.at(-1)![1]!.content;
 		expect(request).toContain('A storm on the pass.');
 		expect(request).toContain('Series: Ronin Road');
+	});
+
+	it('drops the beats of a structure chosen while they were queued, and keeps the payload shape', async () => {
+		chooseStructure(db, owner, seriesId, chapterId, 'freytag');
+		updatePlot(db, owner, seriesId, chapterId);
+		await worker.drain();
+		requestStage(db, owner, seriesId, chapterId, 'beats', { guidance: 'again' });
+		const queued = db.select().from(jobs).all().at(-1)!;
+		expect(queued.kind).toBe('plot.beats');
+		expect(Object.keys((queued.payload as { versionIds: object }).versionIds)).toEqual([
+			'beat:exposition',
+			'beat:rising',
+			'beat:climax',
+			'beat:falling',
+			'beat:denouement'
+		]);
+		// Three-act shares rising, climax and denouement with Freytag.
+		chooseStructure(db, owner, seriesId, chapterId, 'three-act');
+		await worker.drain();
+		const p = plot();
+		const guided = p.beats.filter((b) => current(b.item)?.guidance === 'again').map((b) => b.key);
+		expect(guided).toEqual(['rising', 'climax', 'denouement']);
+		// Nothing is left pending: the orphans' versions were dropped.
+		expect(db.select().from(versions).where(eq(versions.status, 'pending')).all()).toEqual([]);
+		expect(p.busy).toBe(false);
+		expect(p.cast.map((c) => c.name)).toEqual(['Old Watchman']);
 	});
 });

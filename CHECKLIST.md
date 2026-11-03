@@ -151,7 +151,10 @@ no behaviour.
 - [x] Typed scope and slot ids; the pipeline registry and generic engine,
       with unit tests; characters on `entityPipeline` (v0.23.1)
 - [x] Locations on `entityPipeline`; no name auto-lock (v0.23.2)
-- [ ] Plots on the engine (clarify flow stays a shared helper)
+- [x] Plots on the engine: beats and review follow the chosen structure,
+      `ready` gates, the cast sync as `afterFinish`; the clarify flow stays
+      in `plots.ts` beside the engine, to share with styles in the next step
+      (v0.23.3)
 - [ ] Styles on the engine, `cascades: false` throughout
 - [ ] Prompt registry with prompt ids and hashes on versions
 - [ ] Run records (messages, replies, retries; image workflow, model, seed)
