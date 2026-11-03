@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { everythingLabel } from '#lib/components/batch.js';
 
 	interface Summary {
 		total: number;
@@ -44,6 +45,9 @@
 		if (s.missing) return { tone: 'todo', text: `${s.missing} not made` };
 		return null;
 	}
+
+	/** The steps the button generates; notes and the reference are the user's. */
+	let label = $derived(everythingLabel([flow.profile, flow.designs, flow.pictures, flow.sheet]));
 </script>
 
 <nav class="flow" aria-label="How the location is made">
@@ -66,10 +70,11 @@
 		{/each}
 	</ol>
 	<form method="POST" action="?/update" use:enhance>
-		<button type="submit" disabled={due === 0}>Regenerate everything out of date</button>
+		<button type="submit" disabled={due === 0}>{label}</button>
 		<span class="hint">
-			Generates what is missing and regenerates what is out of date and unlocked, step by step, down
-			to the sheet. A new reference is always your choice.
+			Generates what is missing{#if label !== 'Generate everything'}
+				and regenerates what is out of date and unlocked{/if}, step by step, down to the sheet. A
+			new reference is always your choice.
 		</span>
 	</form>
 </nav>
