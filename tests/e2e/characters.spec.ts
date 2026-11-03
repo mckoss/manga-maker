@@ -74,6 +74,23 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	await expect(page.getByRole('img', { name: 'Aiko reference' })).toBeVisible();
 	await expect(steps(page).getByText('1/1')).toBeVisible();
 
+	// The chosen design is marked at the top of its box and among the options above the sheet.
+	await expect(page.locator('#designs .design.reference')).toHaveCount(1);
+	await expect(page.locator('#designs .design.reference .banner')).toHaveText('Chosen reference');
+	const choices = page.getByRole('group', { name: 'Reference options' });
+	await expect(choices.getByRole('img')).toHaveCount(4);
+	await expect(choices.getByText('Chosen reference')).toHaveCount(1);
+	// Choosing from the options above the sheet moves the reference (the fake
+	// AI draws designs 1 and 2 alike, so pick the last, which differs).
+	const before = await page.locator('#designs .design.reference').getAttribute('id');
+	await choices
+		.getByRole('button', { name: /^Choose .* as reference$/ })
+		.last()
+		.click();
+	await expect(page.locator('#designs .design.reference')).not.toHaveAttribute('id', before ?? '');
+	await expect(choices.getByRole('button', { name: /^Choose .* as reference$/ })).toHaveCount(3);
+	await expect(page.locator('#designs .design.reference')).toHaveCount(1);
+
 	await page.getByRole('button', { name: 'Generate the character sheet' }).click();
 	await expect(page.getByRole('img', { name: 'Aiko: Back' })).toBeVisible();
 	await expect(page.getByRole('img', { name: /^Aiko: / })).toHaveCount(8);
