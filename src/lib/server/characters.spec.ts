@@ -6,14 +6,14 @@ import { like } from 'drizzle-orm';
 import { eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
 import { items, versions } from './db/schema';
-import { prompt } from './prompts';
+import { prompt, type PromptId } from './prompts';
 import { readAsset } from './assets';
 import type { ImageRunRecord } from './runs';
-import { FakeImageModel, FakeTextModel } from './ai/fake';
+import { byPrompt, FakeImageModel, FakeTextModel } from './ai/fake';
 import type { ChatMessage } from './ai/text';
 import { Worker } from './jobs';
 import { createUser } from './auth/users';
-import { fakeReply } from './ai';
+import { fakeReplies } from './ai';
 import { requestPictures as requestStylePictures, requestPrompt, styleJobHandlers } from './styles';
 import { createSeries, deleteSeries, startStyle } from './series';
 import { setLocked, useVersion } from './versions';
@@ -63,17 +63,8 @@ let round = 0;
 /** Make the designs the AI writes differ from its first ones. */
 let olderDesigns = false;
 
-function reply(messages: ChatMessage[]) {
-	if (messages[0].content.includes('sample scenes')) return fakeReply(messages);
-	if (messages[0].content.includes('different visual designs')) {
-		const r = fakeReply(messages) as { designs: { appearance: string }[] };
-		if (!olderDesigns) return r;
-		return {
-			...r,
-			designs: r.designs.map((d) => ({ ...d, appearance: `${d.appearance}, older` }))
-		};
-	}
-	if (messages[0].content.includes('art director')) return { prompt: 'bold ink', notes: '' };
+/** A character profile, numbered by round. */
+function profileReply() {
 	round++;
 	return {
 		name: round === 1 ? 'Aiko' : `Aiko ${round}`,
@@ -87,6 +78,20 @@ function reply(messages: ChatMessage[]) {
 		notes: `Drafted, round ${round}.`
 	};
 }
+
+const reply = byPrompt({
+	'style.scenes': fakeReplies['style.scenes'],
+	'character.designs': (messages: ChatMessage[]) => {
+		const r = fakeReplies['character.designs'](messages) as { designs: { appearance: string }[] };
+		if (!olderDesigns) return r;
+		return {
+			...r,
+			designs: r.designs.map((d) => ({ ...d, appearance: `${d.appearance}, older` }))
+		};
+	},
+	'style.prompt': () => ({ prompt: 'bold ink', notes: '' }),
+	'character.develop': profileReply
+});
 
 beforeEach(async () => {
 	round = 0;
@@ -116,9 +121,9 @@ async function readyStyle() {
 	await worker.drain();
 }
 
-/** The last request of a kind sent to the text model. */
-function lastSent(system: string) {
-	return text.calls.findLast((c) => c[0].content.includes(system))![1].content;
+/** The last request made under a prompt. */
+function lastSent(id: PromptId) {
+	return text.calls[text.promptIds.lastIndexOf(id)][1].content;
 }
 
 const brief = { name: '', role: 'protagonist' as const, brief: 'a runaway girl with a staff' };
@@ -190,14 +195,14 @@ describe('characters', () => {
 		expect(detail.notes).toBe('Drafted, round 2.');
 		expect(detail.profile.every((p) => p.status === 'ok')).toBe(true);
 
-		const sent = lastSent('story editor');
+		const sent = lastSent('character.develop');
 		expect(sent).toContain('Series title: Ronin Road');
 		expect(sent).toContain('Setting and look of the series: Edo-period villages');
 		expect(sent).toContain('a runaway girl with a staff');
 		expect(sent).toContain('- Goro (protagonist)');
 		// The user's name is kept: the AI is told to repeat it.
 		expect(getCharacter(db, owner, goro).character.name).toBe('Goro');
-		const first = text.calls.find((c) => c[0].content.includes('story editor'))!;
+		const first = text.calls[text.promptIds.indexOf('character.develop')];
 		expect(first[1].content).toContain('Kept (repeat exactly):\n- name: Goro');
 
 		// The designs follow from the profile; nothing is drawn yet.
@@ -239,7 +244,7 @@ describe('characters', () => {
 		await worker.drain();
 		expect(field(id, 'speech')).toBe('Mumbles.');
 		expect(field(id, 'personality')).toBe('Stubborn, round 2.');
-		expect(lastSent('story editor')).toContain('- speech: Mumbles.');
+		expect(lastSent('character.develop')).toContain('- speech: Mumbles.');
 		// Only the profile was asked for: the designs now wait, out of date.
 		detail = getCharacter(db, owner, id);
 		expect(detail.designs.every((d) => d.designStatus === 'outdated')).toBe(true);
@@ -288,7 +293,7 @@ describe('characters', () => {
 		expect(image.calls.length - before).toBe(2);
 		expect(detail.designs[1].design.versions).toHaveLength(1);
 		// Kept designs are shown to the AI so the new ones differ from them.
-		expect(lastSent('different visual designs')).toContain(
+		expect(lastSent('character.designs')).toContain(
 			'Designs the user is keeping (make the new ones different):\n- short and stocky'
 		);
 		// A redesigned picture keeps its seed, to compare like for like.
@@ -329,7 +334,7 @@ describe('characters', () => {
 		// Rewriting one design asks the AI for one.
 		requestDesigns(db, owner, id, { keys: ['3'], guidance: 'older' });
 		await worker.drain();
-		expect(lastSent('different visual designs')).toContain('Write 1 new design(s).');
+		expect(lastSent('character.designs')).toContain('Write 1 new design(s).');
 		expect(() =>
 			saveDesign(db, owner, id, '2', { label: '', appearance: ' ', outfit: '' })
 		).toThrow(/Describe/);
@@ -500,7 +505,7 @@ describe('characters', () => {
 		// Everything but the kept field and the canonical name.
 		expect(requestProfile(db, owner, id, { guidance: 'make her older' })).toBe(6);
 		await worker.drain();
-		const sent = lastSent('story editor');
+		const sent = lastSent('character.develop');
 		expect(sent).toContain("The user's feedback: make her older");
 		expect(sent).toContain('- personality: Stubborn, round 1.');
 		expect(field(id, 'personality')).toBe('Stubborn, round 1.');

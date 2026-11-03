@@ -7,8 +7,7 @@ import { openDb, type Db } from './db';
 import { assets, items, jobs, versions } from './db/schema';
 import { readAsset } from './assets';
 import { canonicalJson, putRun, type ImageRunRecord, type TextRunRecord } from './runs';
-import { FakeImageModel, FakeTextModel } from './ai/fake';
-import type { ChatMessage } from './ai/text';
+import { byPrompt, FakeImageModel, FakeTextModel, type FakeReplyFn } from './ai/fake';
 import { Worker } from './jobs';
 import { createUser } from './auth/users';
 import {
@@ -34,7 +33,7 @@ import {
 	styleJobHandlers
 } from './styles';
 import { deleteOtherVersions, deleteVersion, setLocked, useVersion } from './versions';
-import { prompt, setPromptOverride } from './prompts';
+import { prompt, setPromptOverride, type PromptId } from './prompts';
 
 let db: Db;
 let worker: Worker;
@@ -52,10 +51,10 @@ const input = {
 };
 
 /** Prompts and scenes numbered by round, so each rewrite is recognizable. */
-function reply(messages: ChatMessage[]) {
-	if (messages[0].content.includes('leaves out')) return { questions: [] };
-	round++;
-	if (messages[0].content.includes('sample scenes')) {
+const replies = {
+	'style.questions': () => ({ questions: [] }),
+	'style.scenes': () => {
+		round++;
 		return {
 			scenes: {
 				figure: `A ronin standing, round ${round}`,
@@ -66,9 +65,13 @@ function reply(messages: ChatMessage[]) {
 				bogus: 'x'
 			}
 		};
+	},
+	'style.prompt': () => {
+		round++;
+		return { prompt: `heavy ink, deep blacks, round ${round}`, notes: 'Made it darker.' };
 	}
-	return { prompt: `heavy ink, deep blacks, round ${round}`, notes: 'Made it darker.' };
-}
+} satisfies Partial<Record<PromptId, FakeReplyFn>>;
+const reply = byPrompt(replies);
 
 beforeEach(async () => {
 	db = openDb(':memory:');
@@ -354,12 +357,13 @@ describe('questions about the description', () => {
 	};
 
 	function withQuestions(fold = 'gritty noir, 1920s Shanghai, a detective story') {
-		text = new FakeTextModel((messages) => {
-			const system = messages[0].content;
-			if (system.includes('leaves out')) return asked;
-			if (system.includes('Rewrite their description')) return { description: fold };
-			return reply(messages);
-		});
+		text = new FakeTextModel(
+			byPrompt({
+				...replies,
+				'style.questions': () => asked,
+				'style.fold': () => ({ description: fold })
+			})
+		);
 		worker = new Worker(db, { image, text }, styleJobHandlers);
 	}
 
@@ -427,12 +431,14 @@ describe('prompt revisions', () => {
 			.all();
 
 	it('records the prompt each AI text step was made with', async () => {
-		text = new FakeTextModel((messages) =>
-			messages[0].content.includes('Rewrite their description')
-				? { description: 'gritty noir in 1920s Shanghai' }
-				: messages[0].content.includes('leaves out')
-					? { questions: [{ question: 'Which era?', suggestions: ['1920s'] }] }
-					: reply(messages)
+		text = new FakeTextModel(
+			byPrompt({
+				...replies,
+				'style.fold': () => ({ description: 'gritty noir in 1920s Shanghai' }),
+				'style.questions': () => ({
+					questions: [{ question: 'Which era?', suggestions: ['1920s'] }]
+				})
+			})
 		);
 		worker = new Worker(db, { image, text }, styleJobHandlers);
 		const id = await readyStyle();

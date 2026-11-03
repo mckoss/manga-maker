@@ -1,5 +1,6 @@
 import { ComfyUI } from './comfyui';
-import { FakeImageModel, FakeTextModel } from './fake';
+import type { PromptId } from '../prompts';
+import { byPrompt, FakeImageModel, FakeTextModel, type FakeReplyFn } from './fake';
 import type { ImageModel } from './image';
 import { Ollama } from './ollama';
 import type { ChatMessage, TextModel } from './text';
@@ -128,76 +129,86 @@ function fakeLocationDesignsReply() {
 	};
 }
 
-/** Canned replies for each step of a chapter's plot. */
-function fakePlotReply(system: string, request: string) {
-	if (system.includes('Choose the story structure'))
-		return { structure: 'serial', reason: 'Fake AI backend: a serial chapter ends on a hook.' };
-	if (system.includes("Write the chapter's story elements"))
-		return {
-			goal: 'Aiko wants to reach the inn before the storm.',
-			stakes: 'Her letter for her brother will be lost.',
-			conflict: 'Against nature, and a stranger who wants the letter.',
-			opposition: 'A masked courier who shadows her.',
-			theme: 'Trust is earned on the road.',
-			change: 'She learns to accept help.',
-			climax: 'On the bridge in the storm she lets the old watchman guide her.',
-			resolution: 'She reaches the inn with the letter.',
-			ending: 'The courier is waiting inside.',
-			notes: 'Fake AI backend: placeholder story elements.'
-		};
-	if (system.includes("Write the chapter's beat outline")) {
-		const keys = (request.match(/^Beats to write: (.*)$/m)?.[1] ?? '')
-			.split(',')
-			.map((k) => k.trim())
-			.filter(Boolean);
-		return {
-			beats: keys.map((key, i) => ({
-				key,
-				text: `Beat ${i + 1}: something happens (${key}).`,
-				pages: 4,
-				// The first beat brings in someone new; the rest anyone the series has.
-				characters: i === 0 ? ['Old Watchman'] : []
-			})),
-			notes: 'Fake AI backend: four pages a beat.',
-			newCharacters: [{ name: 'Old Watchman', role: 'minor', brief: 'Keeps the bridge lamps lit.' }]
-		};
-	}
-	if (system.includes('Review the outline'))
-		return {
-			notes: [
-				{ kind: 'issue', text: 'The climax relies on luck: let Aiko choose.' },
-				{ kind: 'strength', text: 'The hook lands on the last page.' }
-			]
-		};
-	if (system.includes('ask the writer about the gaps'))
-		return {
-			questions: [
-				{ question: 'How should the chapter end?', suggestions: ['A cliffhanger', 'Resolved'] }
-			]
-		};
-	if (system.includes('Rewrite their chapter notes')) {
-		const notes = request.match(/^The writer's notes: (.*)$/m)?.[1] ?? '';
-		const answers = request.split('their answers:\n')[1] ?? '';
-		return { notes: `${notes} ${answers.split('\n').join(' ')}`.trim() };
-	}
-	return null;
+/**
+ * The user message of a request. Fakes that echo part of the request (the
+ * style's feedback, the beats to write, the writer's notes) read it by the
+ * labels the steps put in it ("The user's feedback:", "Beats to write:", …),
+ * so they depend on the user message's format, never on the system prompt.
+ */
+const userMessage = (messages: ChatMessage[]) => messages[1]?.content ?? '';
+
+/** A canned beat outline, one beat for each key the request names. */
+function fakeBeatsReply(request: string) {
+	const keys = (request.match(/^Beats to write: (.*)$/m)?.[1] ?? '')
+		.split(',')
+		.map((k) => k.trim())
+		.filter(Boolean);
+	return {
+		beats: keys.map((key, i) => ({
+			key,
+			text: `Beat ${i + 1}: something happens (${key}).`,
+			pages: 4,
+			// The first beat brings in someone new; the rest anyone the series has.
+			characters: i === 0 ? ['Old Watchman'] : []
+		})),
+		notes: 'Fake AI backend: four pages a beat.',
+		newCharacters: [{ name: 'Old Watchman', role: 'minor', brief: 'Keeps the bridge lamps lit.' }]
+	};
 }
 
-/** Answers each kind of request the app makes with a canned reply. */
-export function fakeReply(messages: ChatMessage[]) {
-	const system = messages[0]?.content ?? '';
-	const plot = fakePlotReply(system, messages[1]?.content ?? '');
-	if (plot) return plot;
-	if (system.includes('location scout')) return fakeLocationReply();
-	if (system.includes('designs for one location')) return fakeLocationDesignsReply();
-	if (system.includes('story editor')) return fakeCharacterReply();
-	if (system.includes('different visual designs')) return fakeDesignsReply();
-	if (system.includes('sample scenes')) return fakeScenesReply();
-	if (system.includes('Rewrite their description'))
-		return fakeFoldReply(messages[1]?.content ?? '');
-	if (system.includes('leaves out')) return fakeQuestionsReply();
-	return fakePromptReply(messages[1]?.content ?? '');
+/** The writer's chapter notes with the answers added. */
+function fakePlotFoldReply(request: string) {
+	const notes = request.match(/^The writer's notes: (.*)$/m)?.[1] ?? '';
+	const answers = request.split('their answers:\n')[1] ?? '';
+	return { notes: `${notes} ${answers.split('\n').join(' ')}`.trim() };
 }
+
+/**
+ * A canned reply for every prompt the app sends, by prompt id. Exhaustive:
+ * a new prompt without a fake reply fails the type check.
+ */
+export const fakeReplies: Record<PromptId, FakeReplyFn> = {
+	'style.prompt': (m) => fakePromptReply(userMessage(m)),
+	'style.scenes': () => fakeScenesReply(),
+	'style.questions': () => fakeQuestionsReply(),
+	'style.fold': (m) => fakeFoldReply(userMessage(m)),
+	'character.develop': () => fakeCharacterReply(),
+	'character.designs': () => fakeDesignsReply(),
+	'location.develop': () => fakeLocationReply(),
+	'location.designs': () => fakeLocationDesignsReply(),
+	'plot.structure': () => ({
+		structure: 'serial',
+		reason: 'Fake AI backend: a serial chapter ends on a hook.'
+	}),
+	'plot.elements': () => ({
+		goal: 'Aiko wants to reach the inn before the storm.',
+		stakes: 'Her letter for her brother will be lost.',
+		conflict: 'Against nature, and a stranger who wants the letter.',
+		opposition: 'A masked courier who shadows her.',
+		theme: 'Trust is earned on the road.',
+		change: 'She learns to accept help.',
+		climax: 'On the bridge in the storm she lets the old watchman guide her.',
+		resolution: 'She reaches the inn with the letter.',
+		ending: 'The courier is waiting inside.',
+		notes: 'Fake AI backend: placeholder story elements.'
+	}),
+	'plot.beats': (m) => fakeBeatsReply(userMessage(m)),
+	'plot.review': () => ({
+		notes: [
+			{ kind: 'issue', text: 'The climax relies on luck: let Aiko choose.' },
+			{ kind: 'strength', text: 'The hook lands on the last page.' }
+		]
+	}),
+	'plot.questions': () => ({
+		questions: [
+			{ question: 'How should the chapter end?', suggestions: ['A cliffhanger', 'Resolved'] }
+		]
+	}),
+	'plot.fold': (m) => fakePlotFoldReply(userMessage(m))
+};
+
+/** Answers each request the app makes with the canned reply for its prompt id. */
+export const fakeReply = byPrompt(fakeReplies);
 
 /** The local AI services, or fakes when AI_BACKEND=fake. */
 export function createAiServices(): AiServices {
