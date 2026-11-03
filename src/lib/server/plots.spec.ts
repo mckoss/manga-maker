@@ -2,14 +2,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
 import { fakeReply } from './ai';
 import { Worker } from './jobs';
 import { createUser } from './auth/users';
 import { createSeries } from './series';
-import { chapters, jobs, versions } from './db/schema';
+import { chapters, items, jobs, versions } from './db/schema';
+import { prompt, type PromptId } from './prompts';
+import { ELEMENT_KINDS } from '#lib/structures.js';
 import { listCharacters } from './characters';
 import {
 	answerQuestions,
@@ -150,6 +152,39 @@ describe('chapter plot', () => {
 		const request = text.calls.at(-1)![1]!.content;
 		expect(request).toContain('A storm on the pass.');
 		expect(request).toContain('Series: Ronin Road');
+	});
+
+	it('records the prompt of each AI text version', async () => {
+		saveNotes(db, owner, seriesId, chapterId, 'A storm on the pass.');
+		requestQuestions(db, owner, seriesId, chapterId);
+		await worker.drain();
+		answerQuestions(db, owner, seriesId, chapterId, ['A cliffhanger']);
+		await worker.drain();
+		updatePlot(db, owner, seriesId, chapterId);
+		await worker.drain();
+		const made = db
+			.select({ kind: items.kind, id: versions.promptId, hash: versions.promptHash })
+			.from(versions)
+			.innerJoin(items, eq(versions.itemId, items.id))
+			.where(and(eq(versions.origin, 'ai'), eq(items.scope, `chapter:${chapterId}`)))
+			.all();
+		const expected: Record<string, PromptId> = {
+			structure: 'plot.structure',
+			beat: 'plot.beats',
+			review: 'plot.review',
+			questions: 'plot.questions',
+			notes: 'plot.fold',
+			...Object.fromEntries(ELEMENT_KINDS.map((k) => [k, 'plot.elements' as const]))
+		};
+		expect(new Set(made.map((r) => r.id))).toEqual(new Set(Object.values(expected)));
+		for (const r of made) {
+			expect([r.kind, r.id, r.hash]).toEqual([
+				r.kind,
+				expected[r.kind],
+				prompt(expected[r.kind]!).hash
+			]);
+		}
+		expect(plot().notes.versions.every((v) => v.promptChanged === false)).toBe(true);
 	});
 
 	it('drops the beats of a structure chosen while they were queued, and keeps the payload shape', async () => {

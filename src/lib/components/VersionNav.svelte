@@ -113,6 +113,11 @@
 					>{modelLabel(shown.model)}</span
 				>{/if}
 			{#if shown.guidance}· <span class="amended">amended: {shown.guidance}</span>{/if}
+			{#if shown.promptChanged}· <span
+					class="earlier-prompt"
+					title="The AI’s instructions for this step have changed since it was made. Only a note: it is not out of date."
+					>made with an earlier version of the prompt</span
+				>{/if}
 		</span>
 	</div>
 	<div class="actions">

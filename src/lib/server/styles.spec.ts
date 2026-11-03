@@ -1,10 +1,10 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { openDb, type Db } from './db';
-import { jobs } from './db/schema';
+import { items, jobs, versions } from './db/schema';
 import { FakeImageModel, FakeTextModel } from './ai/fake';
 import type { ChatMessage } from './ai/text';
 import { Worker } from './jobs';
@@ -32,6 +32,7 @@ import {
 	styleJobHandlers
 } from './styles';
 import { deleteOtherVersions, deleteVersion, setLocked, useVersion } from './versions';
+import { prompt, setPromptOverride } from './prompts';
 
 let db: Db;
 let worker: Worker;
@@ -404,6 +405,92 @@ describe('questions about the description', () => {
 		await worker.drain();
 		expect(getStyle(db, owner, id).questions.list).toHaveLength(3);
 		expect(text.calls.at(-1)![1].content).toContain('soft shoujo watercolor');
+	});
+});
+
+describe('prompt revisions', () => {
+	afterEach(() => setPromptOverride(null));
+
+	/** Each AI text version's prompt id and hash, by item kind; others' are empty. */
+	const stamps = () =>
+		db
+			.select({
+				kind: items.kind,
+				origin: versions.origin,
+				id: versions.promptId,
+				hash: versions.promptHash
+			})
+			.from(versions)
+			.innerJoin(items, eq(versions.itemId, items.id))
+			.all();
+
+	it('records the prompt each AI text step was made with', async () => {
+		text = new FakeTextModel((messages) =>
+			messages[0].content.includes('Rewrite their description')
+				? { description: 'gritty noir in 1920s Shanghai' }
+				: messages[0].content.includes('leaves out')
+					? { questions: [{ question: 'Which era?', suggestions: ['1920s'] }] }
+					: reply(messages)
+		);
+		worker = new Worker(db, { image, text }, styleJobHandlers);
+		const id = await readyStyle();
+		answerQuestions(db, owner, id, ['1920s']);
+		await worker.drain();
+		expect(new Set(text.promptIds)).toEqual(
+			new Set(['style.questions', 'style.prompt', 'style.scenes', 'style.fold'])
+		);
+		const byKind = (kind: string) => stamps().filter((r) => r.kind === kind);
+		expect(byKind('prompt')).toEqual([
+			{ kind: 'prompt', origin: 'ai', id: 'style.prompt', hash: prompt('style.prompt').hash }
+		]);
+		expect(byKind('scene').every((r) => r.id === 'style.scenes')).toBe(true);
+		expect(byKind('questions').map((r) => r.id)).toEqual(['style.questions', '']); // then answered
+		expect(byKind('description').map((r) => [r.origin, r.id])).toEqual([
+			['user', ''],
+			['ai', 'style.fold']
+		]);
+		// Pictures record no prompt hash.
+		expect(byKind('picture').every((r) => r.id === '' && r.hash === '')).toBe(true);
+	});
+
+	it('notes a version made with an earlier prompt, without making it out of date', async () => {
+		const id = await readyStyle();
+		let style = getStyle(db, owner, id);
+		expect(current(style.prompt)?.promptChanged).toBe(false);
+		expect(style.scenes.some((s) => current(s.item)?.promptChanged)).toBe(false);
+
+		const builtIn = prompt('style.prompt').text;
+		setPromptOverride((pid) =>
+			pid === 'style.prompt' ? `${builtIn} Prefer thick lines.` : undefined
+		);
+		style = getStyle(db, owner, id);
+		expect(current(style.prompt)?.promptChanged).toBe(true);
+		expect(current(style.prompt)?.outOfDate).toEqual([]);
+		expect(style.promptStatus).toBe('ok');
+		expect(style.scenes.map((s) => [s.status, current(s.item)?.promptChanged])).toEqual(
+			SAMPLE_SUBJECTS.map(() => ['ok', false])
+		);
+		expect(style.pictures.map((p) => p.status)).toEqual(SAMPLE_SUBJECTS.map(() => 'ok'));
+		expect(style.busy).toBe(false);
+		// Nothing counts as out of date, so nothing is regenerated.
+		expect(requestScenes(db, owner, id, 'outdated')).toBe(0);
+		expect(requestPictures(db, owner, id, 'outdated')).toBe(0);
+
+		// A rewrite under the new text is current again.
+		requestPrompt(db, owner, id);
+		await worker.drain();
+		expect(current(getStyle(db, owner, id).prompt)?.promptChanged).toBe(false);
+		expect(text.promptIds.at(-1)).toBe('style.prompt');
+	});
+
+	it('says nothing about versions made before prompts were recorded', async () => {
+		const id = await readyStyle();
+		db.update(versions).set({ promptId: '', promptHash: '' }).run();
+		setPromptOverride(() => 'Something else entirely.');
+		const style = getStyle(db, owner, id);
+		const all = [style.prompt, ...style.scenes.map((s) => s.item)].flatMap((i) => i.versions);
+		expect(all.length).toBeGreaterThan(0);
+		expect(all.every((v) => v.promptChanged === false)).toBe(true);
 	});
 });
 

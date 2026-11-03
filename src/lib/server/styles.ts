@@ -33,6 +33,8 @@ import { randomSeed } from './ai/image';
 import { isImageModel } from '#lib/models.js';
 import { negativeFor, seriesOfStyle, styleImageModel } from './models';
 import { putImage } from './assets';
+import { askJson } from './prompts/ask';
+import { SAMPLE_SUBJECTS, type SubjectKey } from './samples';
 import { enqueue, type JobHandler } from './jobs';
 import {
 	addVersion,
@@ -100,44 +102,7 @@ export function toneOnly(colorMode: ColorMode, text: string): string {
 		.trim();
 }
 
-/**
- * The kinds of test picture every style is drawn with. Covering figures,
- * faces, places and motion shows how a style handles each kind of panel.
- * The AI writes the actual scene for each to suit the style's setting and
- * era. Location scenes say "empty" and "No people": genre words in a style
- * otherwise put people in them.
- */
-export const SAMPLE_SUBJECTS = [
-	{
-		key: 'figure',
-		label: 'Figure',
-		role: 'one character, full body, standing in a neutral pose, on a plain white background'
-	},
-	{
-		key: 'face',
-		label: 'Face',
-		role: "a close-up of one character's face showing a clear emotion"
-	},
-	{
-		key: 'interior',
-		label: 'Interior',
-		role: 'an empty indoor room typical of the setting',
-		empty: true
-	},
-	{
-		key: 'exterior',
-		label: 'Exterior',
-		role: 'an empty outdoor street or landscape typical of the setting',
-		empty: true
-	},
-	{
-		key: 'action',
-		label: 'Action',
-		role: 'one character in a dynamic action pose, with a sense of motion'
-	}
-] satisfies { key: string; label: string; role: string; empty?: true }[];
-
-export type SubjectKey = (typeof SAMPLE_SUBJECTS)[number]['key'];
+export { SAMPLE_SUBJECTS, type SubjectKey } from './samples';
 
 export const SAMPLE_SIZE = 1024;
 
@@ -814,19 +779,7 @@ export function skipQuestions(db: Db, ownerId: number, styleId: number): void {
 }
 
 // ---------------------------------------------------------------------------
-// The AI's instructions
-
-const NO_NEGATION = `Never write "no", "not", "without" or "avoid". The image model ignores negative prompts and reads negation as a request: "no power lines" draws power lines. To keep something out, describe what is there instead: "a dirt road under an open sky, lined with wooden houses" rather than "no asphalt, no power lines". The user may list things to keep out of every image; honor them this way, by naming period-appropriate things to show in their place.`;
-
-const PROMPT_SYSTEM = `You are an experienced manga art director helping someone who may be new to comics define a drawing style for an AI image model.
-
-You write the style prompt: a fragment that will be combined with many different subjects (characters, places, action scenes), so it describes ONLY how things are drawn: medium, line work, inking, shading, tones and textures, level of detail, proportions, rendering, genre conventions and mood. Never describe a particular subject, character, setting or action. Write 25 to 70 words as comma-separated phrases or short sentences. Stay consistent with the color mode, which is added to the prompt separately.
-
-${NO_NEGATION}
-
-Reply with only a JSON object with these keys:
-- "prompt": the style fragment.
-- "notes": two to four plain-language sentences to the user explaining what you wrote or changed and why, and what to look for in the sample pictures.`;
+// What the AI is asked (its system prompts are in prompts/style.ts)
 
 const promptReply = z.object({ prompt: z.string().min(1), notes: z.string().default('') });
 
@@ -844,23 +797,8 @@ export function promptMessages(state: StyleState, guidance: string) {
 				? 'Improve the current prompt so it matches the description more closely.'
 				: 'Write the first version of the style prompt.'
 	);
-	return [
-		{ role: 'system' as const, content: PROMPT_SYSTEM },
-		{ role: 'user' as const, content: lines.join('\n') }
-	];
+	return [{ role: 'user' as const, content: lines.join('\n') }];
 }
-
-const SCENES_SYSTEM = `You are an experienced manga art director. You write the sample scenes used to test a drawing style for an AI image model.
-
-Each scene is one sentence of 12 to 35 words describing what the picture shows, and each must fit the setting, era, place and genre the user's description implies: clothing, architecture, objects and technology must all belong to that world. For a story set in historical Japan, for example, show kimono and wooden buildings, never school uniforms, power lines or cars. The kinds of scene are:
-${SAMPLE_SUBJECTS.map((s) => `- "${s.key}": ${s.role}`).join('\n')}
-The "interior" and "exterior" scenes must start with "An empty" or "The empty"; "No people." is added to them automatically.
-
-Unless the color mode is full color, describe light, shadow and tones (dark, pale, misty, sunlit) and never hues: a single word like "green" or "blue" makes the image model paint the picture in color.
-
-${NO_NEGATION}
-
-Reply with only a JSON object with the key "scenes": an object whose keys are the scenes asked for, each a scene sentence.`;
 
 const scenesReply = z.object({ scenes: z.record(z.string(), z.string()) });
 
@@ -886,19 +824,8 @@ export function sceneMessages(state: StyleState, requests: { key: string; guidan
 		if (guidance) parts.push(`— the user asks: ${guidance}`);
 		lines.push(parts.join(' '));
 	}
-	return [
-		{ role: 'system' as const, content: SCENES_SYSTEM },
-		{ role: 'user' as const, content: lines.join('\n') }
-	];
+	return [{ role: 'user' as const, content: lines.join('\n') }];
 }
-
-const QUESTIONS_SYSTEM = `You are an experienced manga art director helping someone who may be new to comics describe the drawing style they want, before an AI image model draws in it.
-
-Read their description and decide what it leaves out that would change the pictures: the era or period, the place, the kind of story (genre), the mood, the audience, how detailed or sparse the drawing is, the line work and shading, or artists and works it should look like. Ask only about real gaps that matter most for this description, at most four. Do not ask about anything the description already settles, and do not ask for finer detail about what it already covers. A short, vague description needs three or four questions; a detailed one needs one or two, or none.
-
-Each question is short and specific to their description ("Which part of the Edo period: the 1700s or the 1860s?"), with two to four short suggested answers that fit what they wrote.
-
-Reply with only a JSON object with the key "questions": a list of objects with the keys "question" and "suggestions" (a list of strings). The list may be empty.`;
 
 const questionsReply = z.object({ questions: z.array(question).max(6).default([]) });
 
@@ -908,23 +835,13 @@ export function questionMessages(state: StyleState) {
 		`Color mode: ${COLOR_MODES[state.style.colorMode].label}`
 	];
 	if (state.avoid) lines.push(`Keep out of every image: ${state.avoid}`);
-	return [
-		{ role: 'system' as const, content: QUESTIONS_SYSTEM },
-		{ role: 'user' as const, content: lines.join('\n') }
-	];
+	return [{ role: 'user' as const, content: lines.join('\n') }];
 }
-
-const FOLD_SYSTEM = `You are an experienced manga art director. The user described the drawing style they want, and answered some of your questions about it. Rewrite their description so it includes their answers.
-
-Keep everything they wrote and keep their voice; add each answer where it fits. Write plain prose of one to five sentences, with no headings or lists. Do not add anything they did not say.
-
-Reply with only a JSON object with the key "description".`;
 
 const foldReply = z.object({ description: z.string().min(1) });
 
 export function foldMessages(description: string, answers: string) {
 	return [
-		{ role: 'system' as const, content: FOLD_SYSTEM },
 		{
 			role: 'user' as const,
 			content: `The user's description: ${description}\nYour questions and their answers:\n${answers}`
@@ -936,11 +853,22 @@ export function foldMessages(description: string, answers: string) {
 // Jobs
 
 const promptRun: StepRun<StyleState> = async ({ ai, signal, state, slots: [{ ref, version }] }) => {
-	const reply = await ai.text.json(promptMessages(state, version!.guidance), promptReply, signal);
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'style.prompt',
+		promptMessages(state, version!.guidance),
+		promptReply,
+		signal
+	);
 	return new Map([
 		[
 			slotKey(ref),
-			{ text: positiveOnly(reply.prompt.trim()), notes: reply.notes.trim(), model: ai.text.name }
+			{
+				text: positiveOnly(reply.prompt.trim()),
+				notes: reply.notes.trim(),
+				model: ai.text.name,
+				...prompt
+			}
 		]
 	]);
 };
@@ -956,7 +884,9 @@ const scenesRun: StepRun<StyleState> = async ({ db, ai, signal, state, slots }) 
 		.filter((x) => x.version?.status === 'pending')
 		.sort((a, b) => subjectOrder(a.ref) - subjectOrder(b.ref));
 	if (!targets.length) return null;
-	const reply = await ai.text.json(
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'style.scenes',
 		sceneMessages(
 			state,
 			targets.map((t) => ({ key: t.ref.key ?? '', guidance: t.version!.guidance }))
@@ -968,7 +898,7 @@ const scenesRun: StepRun<StyleState> = async ({ db, ai, signal, state, slots }) 
 	const missing: string[] = [];
 	for (const { ref } of targets) {
 		const scene = cleanAiScene(ref.key ?? '', reply.scenes[ref.key ?? ''] ?? '');
-		if (scene) made.set(slotKey(ref), { text: scene, model: ai.text.name });
+		if (scene) made.set(slotKey(ref), { text: scene, model: ai.text.name, ...prompt });
 		else missing.push(ref.key ?? '');
 	}
 	if (!missing.length) return made;
@@ -1036,7 +966,13 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const target = jobTarget(db, styleId, versionId);
 	if (!target) return;
 	const state = stateOf(db, target.style);
-	const reply = await ai.text.json(questionMessages(state), questionsReply, signal);
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'style.questions',
+		questionMessages(state),
+		questionsReply,
+		signal
+	);
 	const list = reply.questions.slice(0, 4).map((q) => ({
 		question: q.question.trim(),
 		suggestions: q.suggestions
@@ -1047,7 +983,8 @@ const questionsHandler: JobHandler = async (job, { db, ai, signal }) => {
 	finishVersion(db, versionId, {
 		text: JSON.stringify(list),
 		inputs: questionInputs(state),
-		model: ai.text.name
+		model: ai.text.name,
+		...prompt
 	});
 };
 
@@ -1056,7 +993,9 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	const target = jobTarget(db, styleId, versionId);
 	if (!target) return;
 	const state = stateOf(db, target.style);
-	const reply = await ai.text.json(
+	const { value: reply, prompt } = await askJson(
+		ai,
+		'style.fold',
 		foldMessages(state.description, target.version.guidance),
 		foldReply,
 		signal
@@ -1064,7 +1003,8 @@ const foldHandler: JobHandler = async (job, { db, ai, signal }) => {
 	finishVersion(db, versionId, {
 		text: reply.description.trim(),
 		notes: 'Your answers, folded into the description.',
-		model: ai.text.name
+		model: ai.text.name,
+		...prompt
 	});
 	// The questions were about the old description; they are now answered.
 	const questions = ensureItem(db, target.item.ownerId, styleScope(styleId), questionsSlot.kind);

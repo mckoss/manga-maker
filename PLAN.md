@@ -406,6 +406,41 @@ domain module:
   Both stay beside the engine as a documented "Clarify" section, with
   `inputsOutside` giving the questions their inputs.
 
+- Prompts (`src/lib/server/prompts/`): every AI text step's system prompt
+  is registered once with `definePrompt(id, text)` → `{ id, text, hash }`,
+  the hash being the first 12 hex digits of the SHA-256 of the exact text.
+  Ids are namespaced by domain: `style.prompt`, `style.scenes`,
+  `style.questions`, `style.fold`, `character.develop`,
+  `character.designs`, `location.develop`, `location.designs`,
+  `plot.structure`, `plot.elements`, `plot.beats`, `plot.review`,
+  `plot.questions`, `plot.fold`. The texts live in one module per domain
+  (`prompts/style.ts` …) and `prompts/index.ts` collects them into one
+  table (a duplicate id throws at load), so every prompt is known whichever
+  domain modules have loaded, and a dev-server reload rebuilds the table
+  whole. Texts are fixed at load; per-call state goes in the user message.
+  `registry.spec.ts` pins each prompt's hash and length, so a wording
+  change is deliberate and shows in review.
+- Every AI text call goes through `askJson(ai, promptId, messages, schema,
+signal)` (`prompts/ask.ts`): it puts `prompt(id).text` first as the
+  system message, passes the id to `TextModel.json` as a trailing option
+  (Ollama ignores it; `FakeTextModel` records it in `promptIds`), and
+  returns `{ value, prompt: { promptId, promptHash } }`, which the step
+  spreads into the version it finishes. That one place is where run
+  records (PR 6) and fake replies routed by id (PR 7) plug in.
+- Versions record `prompt_id` and `prompt_hash` (empty for the user's own,
+  pictures, and versions made before). `VersionView.promptChanged` is true
+  when a recorded hash differs from the prompt's current one (an unknown
+  id or empty hash is never changed); `VersionNav` then shows a muted "made
+  with an earlier version of the prompt" note. It is informational only:
+  it never makes anything out of date, due or regenerated.
+- Editing seam: `prompt(id)` is the only read path for a prompt's text, and
+  it asks an override (`setPromptOverride`) first. Nothing installs one
+  yet; an editor would install one backed by the database (the user's text
+  for an id, or undefined for the built-in), and versions made before an
+  edit would then show the note. Image prompts are built per call by the
+  domains' `*Prompt()` builders and are not registered; image steps get
+  run records instead.
+
 The refactor lands in small, behaviour-preserving PRs:
 
 1. Typed ids, the registry and engine, and characters on `entityPipeline`
@@ -421,7 +456,8 @@ The refactor lands in small, behaviour-preserving PRs:
 5. Prompt registry: `definePrompt(id, text)` → `{ id, text, hash }` with
    namespaced ids (`character.develop`); versions gain `prompt_id` and
    `prompt_hash`, and show a soft "made with an earlier version of the
-   prompt" note that never counts as out of date (text steps only).
+   prompt" note that never counts as out of date (text steps only)
+   (v0.25.0).
 6. Run records: `TextModel.json` returns `{ value, run }` (messages, raw
    replies, parse errors and retries, parsed value); images record the
    filled workflow, model and seed. Stored as a content-addressed JSON asset
