@@ -103,7 +103,10 @@ const inputsOf = (src: LogoSource) => ({
 
 /**
  * The edit instruction: the protagonist, kept exactly, as a bold emblem in
- * front of a scene that says what the story is.
+ * front of a scene that says what the story is. With a default location,
+ * the location is image 1 (the edit model builds on the first image and
+ * borrows from the rest) and the protagonist image 2: put the other way
+ * round, the model keeps the character's blank backdrop and drops the place.
  */
 export function logoPrompt(
 	colorMode: ColorMode,
@@ -111,22 +114,34 @@ export function logoPrompt(
 	guidance = '',
 	place = ''
 ): string {
-	const background = place.trim()
-		? sentence(
-				`Behind them, the place in the second picture, ${place.trim()}, kept recognizable but simplified`
-			)
-		: setting.trim()
-			? sentence(`Behind them, a typical scene from the story: ${setting.trim()}`)
-			: 'Behind them, a typical scene from their world.';
+	const keep =
+		'Keep the same character exactly: the same face, hair, body, clothing and props. Keep the same drawing style, line work and shading.';
+	if (place.trim())
+		return toneOnly(
+			colorMode,
+			[
+				`Close-up of the character from image 2 in front of the place in image 1, ${place.trim()}:`,
+				"the character's head and shoulders fill the lower two thirds of the square, facing slightly to one side with a confident expression, and the place rises behind them.",
+				'Keep the place in image 1 recognizable. Bold, simple shapes that read at a small size, like the emblem of a manga series. No text or lettering.',
+				sentence(guidance),
+				keep,
+				TONE_REMINDER[colorMode]
+			]
+				.filter(Boolean)
+				.join(' ')
+		);
+	const background = setting.trim()
+		? sentence(`Behind them, a typical scene from the story: ${setting.trim()}`)
+		: 'Behind them, a typical scene from their world.';
 	return toneOnly(
 		colorMode,
 		[
-			`Make a square emblem for a manga series from ${place.trim() ? 'these pictures' : 'this picture'}.`,
+			'Make a square emblem for a manga series from this picture.',
 			'Show the same character from the chest up, large and centered, facing slightly to one side with a confident expression.',
 			background,
 			'Bold, simple shapes that read at a small size, framed to fill the square. No text or lettering.',
 			sentence(guidance),
-			'Keep the same character exactly: the same face, hair, body, clothing and props. Keep the same drawing style, line work and shading.',
+			keep,
 			TONE_REMINDER[colorMode]
 		]
 			.filter(Boolean)
@@ -201,8 +216,9 @@ const logoHandler: JobHandler = async (job, { db, ai, signal }) => {
 		.toBuffer();
 	const images = [square];
 	if (src.place) {
-		// The default location, cropped to the same square, for the background.
-		images.push(
+		// The default location, cropped to the same square, goes first: the
+		// edit builds on image 1 and only borrows the character from image 2.
+		images.unshift(
 			await sharp(readAsset(src.place.referenceHash))
 				.resize(LOGO_SIZE, LOGO_SIZE, { fit: 'cover' })
 				.png()
