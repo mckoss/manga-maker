@@ -12,7 +12,7 @@ import {
 } from './db/schema';
 import { randomSeed } from './ai/image';
 import { isImageModel } from '#lib/models.js';
-import { styleImageModel } from './models';
+import { negativeFor, seriesOfStyle, styleImageModel } from './models';
 import { putImage } from './assets';
 import { enqueue, type JobHandler } from './jobs';
 import {
@@ -871,12 +871,14 @@ const pictureHandler: JobHandler = async (job, { db, ai, signal }) => {
 		state.scenes[key]!,
 		target.version.guidance
 	);
+	const model = isImageModel(target.version.model)
+		? target.version.model
+		: styleImageModel(db, target.style.ownerId, target.style.id);
 	const result = await ai.image.generate(
 		{
-			model: isImageModel(target.version.model)
-				? target.version.model
-				: styleImageModel(db, target.style.ownerId, target.style.id),
+			model,
 			prompt,
+			negative: negativeFor(model, seriesOfStyle(db, target.style.id)),
 			seed,
 			width: SAMPLE_SIZE,
 			height: SAMPLE_SIZE

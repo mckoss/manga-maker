@@ -148,6 +148,15 @@
 			regenerate one to use another. Set your default on your
 			<a href={resolve('/account')}>account</a> page.</span
 		>
+		<label>
+			Avoid
+			<textarea name="avoid" rows="2" maxlength="1000">{data.avoid}</textarea>
+		</label>
+		<span class="hint"
+			>What pictures should not show, separated by commas. Only the
+			<em>strong prompt</em> model uses it: it follows the prompt more closely and steers away from this
+			list (a negative prompt), but takes about twice as long as the plain 25-step model.</span
+		>
 		<button type="submit">Save</button>
 	</form>
 </section>

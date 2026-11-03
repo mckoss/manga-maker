@@ -7,6 +7,8 @@ export interface ImageRequest {
 	model: ImageModelId;
 	prompt: string;
 	seed: number;
+	/** What to steer away from; only the models in AVOIDS use it. */
+	negative?: string;
 	width: number;
 	height: number;
 }
@@ -22,6 +24,8 @@ export interface EditRequest {
 	prompt: string;
 	images: Buffer[];
 	seed: number;
+	/** What to steer away from; only the models in AVOIDS use it. */
+	negative?: string;
 }
 
 export interface ImageResult {

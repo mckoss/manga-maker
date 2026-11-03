@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildEditWorkflow, buildWorkflow } from './comfyui';
+import { buildEditWorkflow, buildWorkflow, STRONG_CFG } from './comfyui';
 import { IMAGE_MODELS, type ImageModelId } from './image';
 
 describe('buildWorkflow', () => {
@@ -19,6 +19,7 @@ describe('buildWorkflow', () => {
 	it('runs every model at CFG 1 with no negative prompt', () => {
 		for (const model of Object.keys(IMAGE_MODELS) as ImageModelId[]) {
 			const wf = buildWorkflow({ model, prompt: 'ink', seed: 1, width: 64, height: 64 });
+			if (model === 'qwen-image-2.1-strong') continue; // guided on purpose, below
 			if (model.startsWith('qwen-image-2.1')) {
 				expect(wf.guider.inputs.cfg).toBe(1);
 				expect(wf.positive.inputs.negative_prompt).toBe('');
@@ -60,6 +61,23 @@ describe('buildWorkflow', () => {
 			inputs: { model: ['cache', 0], scheduler: 'simple', steps: 25, denoise: 1 }
 		});
 		expect(wf.sample.inputs.sigmas).toEqual(['sigmas', 0]);
+	});
+
+	it('weighs the prompt and the Avoid list with the strong-prompt model only', () => {
+		const req = { prompt: 'ink', negative: 'text', seed: 7, width: 64, height: 64 };
+		const strong = buildWorkflow({ ...req, model: 'qwen-image-2.1-strong' });
+		expect(strong.unet.inputs.unet_name).toBe('qwen_image_2.1_bf16.safetensors');
+		expect(strong.guider.inputs.cfg).toBe(STRONG_CFG);
+		expect(strong.positive.inputs.negative_prompt).toBe('text');
+		const full = buildWorkflow({ ...req, model: 'qwen-image-2.1-full' });
+		expect(full.guider.inputs.cfg).toBe(1);
+		expect(full.positive.inputs.negative_prompt).toBe('');
+		const edit = buildEditWorkflow(
+			{ model: 'qwen-image-2.1-strong', prompt: 'x', negative: 'text', seed: 1 },
+			['a.png']
+		);
+		expect(edit.guider.inputs.cfg).toBe(STRONG_CFG);
+		expect(edit.positive.inputs.negative_prompt).toBe('text');
 	});
 });
 

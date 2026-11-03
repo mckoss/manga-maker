@@ -15,8 +15,12 @@ const ENGINES: Record<ImageModelId, { generate: string; edit: string }> = {
 	'qwen-image': { generate: 'qwen-image-2512', edit: 'qwen-image-edit-2509' },
 	'z-image': { generate: 'z-image-turbo', edit: 'qwen-image-edit-2509' },
 	'qwen-image-2.1': { generate: 'qwen-image-2.1-turbo', edit: 'qwen-image-2.1-turbo' },
-	'qwen-image-2.1-full': { generate: 'qwen-image-2.1', edit: 'qwen-image-2.1' }
+	'qwen-image-2.1-full': { generate: 'qwen-image-2.1', edit: 'qwen-image-2.1' },
+	'qwen-image-2.1-strong': { generate: 'qwen-image-2.1-strong', edit: 'qwen-image-2.1-strong' }
 };
+
+/** The strong-prompt variant's guidance: each step runs twice, with and without the prompt. */
+export const STRONG_CFG = 4;
 
 type WorkflowName =
 	'qwen-image' | 'z-image' | 'qwen-image-2.1' | 'qwen-image-edit' | 'qwen-image-2.1-edit';
@@ -25,8 +29,20 @@ function loadWorkflow(name: WorkflowName): Workflow {
 	return JSON.parse(fs.readFileSync(path.join(WORKFLOW_DIR, `${name}.json`), 'utf8'));
 }
 
-const isQwen21 = (model?: ImageModelId) =>
-	model === 'qwen-image-2.1' || model === 'qwen-image-2.1-full';
+const isQwen21 = (model?: ImageModelId) => model?.startsWith('qwen-image-2.1') ?? false;
+const isFullQwen21 = (model?: ImageModelId) =>
+	model === 'qwen-image-2.1-full' || model === 'qwen-image-2.1-strong';
+
+/** The 2.1 graph for a model: Turbo as saved, else the full weights, maybe guided. */
+function qwen21(wf: Workflow, model: ImageModelId | undefined, negative = ''): Workflow {
+	if (!isFullQwen21(model)) return wf;
+	useFullQwen21(wf);
+	if (model === 'qwen-image-2.1-strong') {
+		wf.guider.inputs.cfg = STRONG_CFG;
+		wf.positive.inputs.negative_prompt = negative;
+	}
+	return wf;
+}
 
 /**
  * The full Qwen-Image 2.1 runs the Turbo graph with the undistilled weights
@@ -44,10 +60,9 @@ function useFullQwen21(wf: Workflow): Workflow {
 
 /** Fill a text-to-image workflow template with a request's settings. */
 export function buildWorkflow(req: ImageRequest): Workflow {
-	const wf =
-		req.model === 'qwen-image-2.1-full'
-			? useFullQwen21(loadWorkflow('qwen-image-2.1'))
-			: loadWorkflow(req.model);
+	const wf = isQwen21(req.model)
+		? qwen21(loadWorkflow('qwen-image-2.1'), req.model, req.negative)
+		: loadWorkflow(req.model as WorkflowName);
 	wf.latent.inputs.width = req.width;
 	wf.latent.inputs.height = req.height;
 	if (isQwen21(req.model)) {
@@ -70,8 +85,7 @@ export function buildEditWorkflow(req: Omit<EditRequest, 'images'>, inputs: stri
 	if (isQwen21(req.model)) {
 		if (inputs.length < 1 || inputs.length > 10)
 			throw new ComfyError('An edit takes one to ten images.');
-		const wf = loadWorkflow('qwen-image-2.1-edit');
-		if (req.model === 'qwen-image-2.1-full') useFullQwen21(wf);
+		const wf = qwen21(loadWorkflow('qwen-image-2.1-edit'), req.model, req.negative);
 		inputs.forEach((name, i) => {
 			const n = i + 1;
 			wf[`load${n}`] = { class_type: 'LoadImage', inputs: { image: name } };
