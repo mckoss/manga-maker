@@ -700,8 +700,8 @@ export function requestStage(
 // This runs beside the engine, not as a stage: nothing is made from the
 // questions, the fold writes the user's own notes, and neither cascades.
 // Styles have the same flow (on their description); it differs in details
-// (questions must be non-empty there, a locked item is skipped rather than
-// refused), so the two stay separate until styles move onto the engine.
+// (a kept questions item is skipped there rather than refused, and asking
+// needs no idea), so each domain keeps its own (see PLAN.md).
 
 /** The questions not yet answered or skipped: none while new ones are asked or the idea changed. */
 function openQuestions(questions: ItemView): Question[] {

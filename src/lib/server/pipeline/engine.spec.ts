@@ -3,9 +3,16 @@ import { eq } from 'drizzle-orm';
 import { openDb, type Db } from '../db';
 import { items, jobs, versions } from '../db/schema';
 import type { AiServices } from '../ai';
-import { Worker } from '../jobs';
+import { enqueue, Worker } from '../jobs';
 import { createUser } from '../auth/users';
-import { addVersion, currentVersions, ensureItem, setLocked } from '../versions';
+import {
+	addVersion,
+	attachJob,
+	currentVersions,
+	ensureItem,
+	setLocked,
+	startVersion
+} from '../versions';
 import { scopeOf, slot, slotKey, type SlotRef } from './ids';
 import { engine } from './engine';
 import type { Pipeline, PipelineState, Stage, StepOutput, StepRun } from './registry';
@@ -327,5 +334,54 @@ describe('pipeline engine', () => {
 		const views = outside.describe(db, state(), pipeline.labels).views;
 		const asked = views.get('asked')!;
 		expect(asked.versions.find((v) => v.id === asked.currentId)!.outOfDate).toEqual(['the source']);
+	});
+
+	it('anchors the user’s own inputs where the pipeline says so', async () => {
+		await built();
+		const withNote = (extra: Partial<Pipeline<S>> = {}) =>
+			engine({
+				...pipeline,
+				...extra,
+				stages: pipeline.stages.map((st) =>
+					st.id === 'a' ? { ...st, upstream: () => [slot('src'), slot('note')] } : st
+				)
+			});
+		const status = (e: ReturnType<typeof withNote>, key: string) =>
+			e.describe(db, state()).status(key);
+		// A note never written is not settled: by default a waits on it.
+		expect(status(withNote(), 'a')).toBe('upstream');
+		const lenient = withNote({ anchoredOutside: (view) => !view?.pending });
+		expect(status(lenient, 'a')).toBe('ok');
+		expect(status(lenient, 'b:1')).toBe('ok');
+		// …until the source is being rewritten.
+		const v = startVersion(db, itemOf('src'));
+		attachJob(db, [v.id], enqueue(db, owner, 'test.src', {}).id);
+		expect(status(lenient, 'a')).toBe('upstream');
+		expect(status(lenient, 'b:1')).toBe('upstream');
+	});
+
+	it('queues only the ids when a stage asks for lean payloads', async () => {
+		flow.advance(db, ID, ['a']);
+		await drain();
+		const lean = engine({
+			...pipeline,
+			stages: pipeline.stages.map((st) =>
+				st.job ? { ...st, job: { ...st.job, payload: 'ids' as const } } : st
+			)
+		});
+		lean.start(db, state(), 'b', [slot('b', '1')], { guidance: 'g', cascade: ['c'] });
+		lean.start(db, state(), 'a', [slot('a')], { guidance: 'g', cascade: ['b'] });
+		const queued = db.select().from(jobs).where(eq(jobs.status, 'queued')).all();
+		expect(queued.map((j) => j.payload)).toEqual([
+			{ chapterId: ID, versionId: expect.any(Number) },
+			{ chapterId: ID, versionIds: { a: expect.any(Number) } }
+		]);
+		// Guidance stays on the version; the jobs run without a cascade.
+		const pending = db.select().from(versions).where(eq(versions.status, 'pending')).all();
+		expect(pending.map((x) => x.guidance)).toEqual(['g', 'g']);
+		await new Worker(db, {} as AiServices, lean.handlers()).drain();
+		expect(runs.at(-2)!.slots).toEqual(['b:1']);
+		expect(runs.at(-1)!.slots).toEqual(['a']);
+		expect(statusOf('b:2', 'c')).toEqual(['missing', 'missing']);
 	});
 });

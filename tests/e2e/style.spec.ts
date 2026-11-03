@@ -70,6 +70,27 @@ test('marks later steps out of date and regenerates only those', async ({ signed
 	await expect(page.getByText('Made before the style prompt changed.')).toHaveCount(0);
 });
 
+test('shows pictures made from a changed step as Earlier step changed, and redraws nothing', async ({
+	signedIn: page
+}) => {
+	await newStyle(page, 'Upstream');
+	const figure = picture(page, 'Figure');
+	await expect(figure.getByText('Earlier step changed')).toHaveCount(0);
+	const description = page.getByRole('textbox', { name: 'Description', exact: true });
+	await description.fill('Edo-period ink, mountain passes, snow');
+	await description.blur();
+	await expect(page.getByText('Made before the description changed.').first()).toBeVisible();
+	for (const label of ['Figure', 'Face', 'Interior', 'Exterior', 'Action']) {
+		await expect(picture(page, label).getByText('Earlier step changed')).toBeVisible();
+	}
+	// Nothing is redrawn: each picture is still its first version, and none is generating.
+	await page.reload();
+	await expect(figure.getByText('Earlier step changed')).toBeVisible();
+	await expect(page.locator('.picture').getByText('Generating…')).toHaveCount(0);
+	await expect(page.locator('.picture').getByText('2 of 2')).toHaveCount(0);
+	await expect(figure.getByRole('button', { name: 'Regenerate Figure' })).toHaveCount(0);
+});
+
 test('folds answers to the art director’s questions into the description', async ({
 	signedIn: page
 }) => {

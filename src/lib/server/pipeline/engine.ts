@@ -69,7 +69,8 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 			const v = views.get(key);
 			if (v?.locked) return true;
 			const ref = parseSlot(key);
-			return Boolean(stageOfKind.get(ref.kind)?.anchored?.(v, ref));
+			const st = stageOfKind.get(ref.kind);
+			return Boolean(st ? st.anchored?.(v, ref) : p.anchoredOutside?.(v, ref));
 		};
 		const current = (key: string) => {
 			const v = views.get(key);
@@ -166,6 +167,7 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 				snapshot: () => (snap ??= describe(db, s))
 			}) ?? refs.map(() => ({ guidance: opts.guidance }));
 		const cascade = opts.cascade ?? [];
+		const full = job.payload !== 'ids';
 		return wrap(() => {
 			if (job.per === 'stage') {
 				const started = refs.map(
@@ -174,8 +176,7 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 				const queued = enqueue(db, s.ownerId, job.kind, {
 					[idField]: s.id,
 					versionIds: Object.fromEntries(started.map(([ref, id]) => [labelOf(st, ref), id])),
-					guidance: opts.guidance?.trim() ?? '',
-					cascade
+					...(full ? { guidance: opts.guidance?.trim() ?? '', cascade } : {})
 				});
 				attachJob(
 					db,
@@ -188,8 +189,7 @@ export function engine<S extends PipelineState>(p: Pipeline<S>) {
 					const queued = enqueue(db, s.ownerId, job.kind, {
 						[idField]: s.id,
 						versionId: version.id,
-						key: ref.key,
-						cascade
+						...(full ? { key: ref.key, cascade } : {})
 					});
 					attachJob(db, [version.id], queued.id);
 				});

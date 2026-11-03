@@ -4,8 +4,17 @@
 	import Regenerate from '#lib/components/Regenerate.svelte';
 	import type { ItemView } from '#lib/server/versions.js';
 
-	/** One sample picture: its state, how to regenerate it, and its versions. */
-	let { item, label, subject }: { item: ItemView; label: string; subject: string } = $props();
+	/**
+	 * One sample picture: its state, how to regenerate it, and its versions.
+	 * `status` is where it stands in the pipeline ("upstream": its prompt or
+	 * scene is out of date).
+	 */
+	let {
+		item,
+		label,
+		subject,
+		status
+	}: { item: ItemView; label: string; subject: string; status: string } = $props();
 
 	let viewId = $state<number | null>(null);
 	let current = $derived(item.versions.find((v) => v.id === item.currentId));
@@ -32,6 +41,7 @@
 		fields={{ which: subject }}
 		seed
 		placeholder="lower camera angle, more sky"
+		upstream={status === 'upstream'}
 	/>
 	{#if shown}<p class="meta">Seed {shown.seed ?? 'not recorded'}</p>{/if}
 	<VersionNav {item} {shown} {label} onview={(v) => (viewId = v)} />

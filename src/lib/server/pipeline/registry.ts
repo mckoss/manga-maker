@@ -129,7 +129,19 @@ export interface Stage<S extends PipelineState> {
 	 * A per-stage payload names its slots by key ("1"), or by the whole slot
 	 * ("beat:hook") with `payloadKeys: 'slot'`; either form is read back.
 	 */
-	job?: { kind: string; per: 'stage' | 'slot'; run: StepRun<S>; payloadKeys?: 'key' | 'slot' };
+	job?: {
+		kind: string;
+		per: 'stage' | 'slot';
+		run: StepRun<S>;
+		payloadKeys?: 'key' | 'slot';
+		/**
+		 * 'full' (default): the payload also carries the guidance and the
+		 * cascade (and a per-slot job its key). 'ids': only the domain's id and
+		 * the version id(s), as styles' jobs have always been queued; the
+		 * guidance stays on each version.
+		 */
+		payload?: 'full' | 'ids';
+	};
 	/** Carry the cascade on once a job finishes (default true). */
 	cascades?: boolean;
 	/**
@@ -155,6 +167,13 @@ export interface Pipeline<S extends PipelineState> {
 	 * default) for the user's own.
 	 */
 	inputsOutside?(s: S, slot: SlotRef): Inputs | null;
+	/**
+	 * Whether an item no stage makes (the user's own input, listed as an
+	 * upstream slot) counts as settled for what is made from it; by default
+	 * only when kept. Styles say yes unless it is being rewritten, so a
+	 * keep-out list never written doesn't hold anything back.
+	 */
+	anchoredOutside?(view: ItemView | undefined, slot: SlotRef): boolean;
 	/** The domain's error for a message (a VersionError from starting, say). */
 	error?(message: string): Error;
 }

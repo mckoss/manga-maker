@@ -144,6 +144,51 @@ describe('style pipeline', () => {
 		]);
 	});
 
+	it('shows what follows a changed step as upstream, and never redraws it by itself', async () => {
+		const id = await readyStyle();
+		let style = getStyle(db, owner, id);
+		expect(style.promptStatus).toBe('ok');
+		expect(style.scenes.map((s) => s.status)).toEqual(SAMPLE_SUBJECTS.map(() => 'ok'));
+		expect(style.pictures.map((p) => p.status)).toEqual(SAMPLE_SUBJECTS.map(() => 'ok'));
+		const jobCount = () => db.select().from(jobs).all().length;
+		const before = jobCount();
+
+		saveText(db, owner, id, 'description', '', 'gritty noir in 1920s Shanghai');
+		await worker.drain();
+		style = getStyle(db, owner, id);
+		expect(style.promptStatus).toBe('outdated');
+		expect(style.scenes.every((s) => s.status === 'outdated')).toBe(true);
+		// The pictures' own inputs are unchanged, but their prompt and scenes are out of date.
+		expect(style.pictures.every((p) => p.status === 'upstream')).toBe(true);
+		expect(current(style.pictures[0].item)?.outOfDate).toEqual([]);
+		// Only the questions about the new description were asked.
+		expect(
+			db
+				.select()
+				.from(jobs)
+				.all()
+				.slice(before)
+				.map((j) => j.kind)
+		).toEqual(['style.questions']);
+
+		// A new prompt makes the pictures out of date; still nothing is redrawn.
+		requestPrompt(db, owner, id);
+		expect(getStyle(db, owner, id).pictures[0].status).toBe('upstream'); // prompt pending
+		await worker.drain();
+		style = getStyle(db, owner, id);
+		expect(style.promptStatus).toBe('ok');
+		expect(style.pictures.every((p) => p.status === 'outdated')).toBe(true);
+		expect(jobCount()).toBe(before + 2);
+
+		// The keep-out list, never written, holds nothing back.
+		requestScenes(db, owner, id, 'outdated');
+		await worker.drain();
+		requestPictures(db, owner, id, 'outdated');
+		await worker.drain();
+		style = getStyle(db, owner, id);
+		expect(style.pictures.map((p) => p.status)).toEqual(SAMPLE_SUBJECTS.map(() => 'ok'));
+	});
+
 	it('regenerates only unlocked items that are missing or out of date', async () => {
 		const id = await readyStyle();
 		const before = getStyle(db, owner, id);

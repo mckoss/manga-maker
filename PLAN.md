@@ -383,8 +383,28 @@ domain module:
   engine reads either form back. The questions → answers → notes clarify
   flow stays outside the engine in `plots.ts`; the pipeline's
   `inputsOutside` gives its questions their inputs so they go out of date.
-  It differs from the styles' flow in details (empty questions, locked
-  items), so a shared `pipeline/clarify.ts` waits for step 4.
+- Styles (`styles.ts`) build prompt → scenes → pictures on `engine`, with
+  `cascades: false` on every stage: a style never regenerates by itself,
+  and each request starts exactly what it names (pictures still queue a
+  missing prompt or scene first, and are queued right behind it). The
+  "outdated" bulk requests still pick items by their own inputs. Statuses
+  are transitive as elsewhere, so a picture whose prompt or scene is out of
+  date (or being rewritten) shows "Earlier step changed". The description
+  and keep-out list are upstream of the prompt and scenes but made by no
+  stage; the pipeline's `anchoredOutside` counts them settled unless being
+  rewritten, so a keep-out list never written holds nothing back. Their
+  jobs keep their lean payloads (only the style's and versions' ids) with
+  the stage's `job.payload: 'ids'`. One escape hatch: when the AI leaves a
+  scene out, the scenes job finishes the ones it wrote itself and then
+  fails, leaving the missing one pending with the error, as before (the
+  engine finishes a job's versions only when its run succeeds).
+- Clarify stays per domain. Styles and plots both ask questions, fold the
+  answers into the user's own text and put the questions away, but differ
+  where a shared `pipeline/clarify.ts` would change one of them: plots
+  refuse a kept questions item and refuse to ask without an idea, styles
+  skip a kept item quietly; and each job reads its own domain's context.
+  Both stay beside the engine as a documented "Clarify" section, with
+  `inputsOutside` giving the questions their inputs.
 
 The refactor lands in small, behaviour-preserving PRs:
 
@@ -395,11 +415,9 @@ The refactor lands in small, behaviour-preserving PRs:
    cast sync as `afterFinish`. The questions → answers → fold "clarify" flow
    stays outside the engine, in `plots.ts` for now (v0.23.3).
 4. Styles on the engine with `cascades: false` everywhere: never
-   auto-rerender, but keep transitive "out of date"/"upstream" highlighting
-   so users regenerate by hand. Extract the clarify flow plots and styles
-   share into `pipeline/clarify.ts`, reconciling their differences (styles
-   reject empty questions and skip a locked questions item; plots accept
-   them and refuse).
+   auto-rerender, but transitive "out of date"/"Earlier step changed"
+   highlighting so users regenerate by hand. The clarify flow stays in
+   each domain: unifying it would change one or the other (v0.24.0).
 5. Prompt registry: `definePrompt(id, text)` → `{ id, text, hash }` with
    namespaced ids (`character.develop`); versions gain `prompt_id` and
    `prompt_hash`, and show a soft "made with an earlier version of the
