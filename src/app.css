@@ -87,6 +87,11 @@ header .name {
 	text-decoration: none;
 	white-space: nowrap;
 }
+header .name .book {
+	height: 44px;
+	width: auto;
+	margin: -6px 0;
+}
 header .name .dot {
 	color: var(--shu);
 }

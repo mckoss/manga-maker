@@ -1,5 +1,6 @@
 <script lang="ts">
-	import favicon from '#lib/assets/favicon.svg';
+	import favicon from '#lib/assets/favicon.png';
+	import bookLogo from '#lib/assets/logo-book.png';
 	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import type { LayoutProps } from './$types';
@@ -21,12 +22,14 @@
 </script>
 
 <svelte:head>
-	<link rel="icon" href={favicon} />
+	<link rel="icon" type="image/png" href={favicon} />
+	<link rel="apple-touch-icon" href="/apple-touch-icon.png" />
 	<title>Manga Maker</title>
 </svelte:head>
 
 <header>
 	<a class="name" href={resolve('/')} aria-label="Manga Maker">
+		<img class="book" src={bookLogo} alt="" width="22" height="44" />
 		<span aria-hidden="true">MANGA<span class="dot">·</span>MAKER</span>
 	</a>
 	<span class="version">v{__APP_VERSION__}</span>
