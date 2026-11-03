@@ -36,6 +36,9 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	await expect(profile.getByLabel('Appearance', { exact: true })).toHaveValue(/long black hair/);
 	await expect(page.getByText('AI story editor:')).toBeVisible();
 	await expect(page.locator('.designs .placeholder', { hasText: 'Not created' })).toHaveCount(4);
+	// Nothing made yet is out of date: the pipeline button only generates.
+	await expect(page.getByRole('button', { name: 'Generate everything' })).toBeVisible();
+	await expect(page.locator('.flow, #designs').getByText(/out of date/i)).toHaveCount(0);
 	const flow = page.getByRole('navigation', { name: 'How the character is made' });
 	await expect(flow.getByRole('listitem').filter({ hasText: 'Profile' })).toContainText(
 		'up to date'
@@ -58,7 +61,7 @@ test('builds a character through its pipeline and chooses a reference picture', 
 	await expect(profile.getByText('Locked', { exact: true })).toBeVisible();
 
 	// Regenerate everything: the profile, then the designs, then their pictures.
-	await page.getByRole('button', { name: 'Regenerate everything out of date' }).click();
+	await page.getByRole('button', { name: 'Generate and regenerate everything' }).click();
 	const options = page.getByRole('button', { name: /^Use design \d as reference$/ });
 	await expect(options).toHaveCount(4);
 	await expect(flow.getByRole('listitem').filter({ hasText: 'Option pictures' })).toContainText(
@@ -142,7 +145,7 @@ test('draws a series logo from the protagonist, used across the series', async (
 	await page.getByLabel('Describe them').fill('a runaway girl with a staff');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Aiko', level: 1 })).toBeVisible();
-	await page.getByRole('button', { name: 'Regenerate everything out of date' }).click();
+	await page.getByRole('button', { name: 'Generate everything' }).click();
 	const options = page.getByRole('button', { name: /^Use design \d as reference$/ });
 	await expect(options).toHaveCount(4);
 	await options.first().click();

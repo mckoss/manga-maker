@@ -27,3 +27,16 @@ export function batchLabel(work: { missing: number; stale: number }, noun: strin
 	if (stale) return `Regenerate ${stale} out-of-date ${stale === 1 ? noun : `${noun}s`}`;
 	return '';
 }
+
+/**
+ * The pipeline's "do everything" button: "Generate everything" until
+ * something already made goes out of date. Steps the user chooses (notes,
+ * the reference) are never generated, so they don't count.
+ */
+export function everythingLabel(steps: { missing: number; stale: number }[]): string {
+	const missing = steps.reduce((n, s) => n + s.missing, 0);
+	const stale = steps.reduce((n, s) => n + s.stale, 0);
+	if (!stale) return 'Generate everything';
+	if (!missing) return 'Regenerate everything out of date';
+	return 'Generate and regenerate everything';
+}

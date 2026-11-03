@@ -104,7 +104,7 @@ test('adds chapters, picks their casts, and keeps each on its design', async ({
 	await page.getByLabel('Describe them').fill('a runaway girl with a staff');
 	await page.getByRole('button', { name: 'Add character' }).click();
 	await expect(page.getByRole('heading', { name: 'Aiko', level: 1 })).toBeVisible();
-	await page.getByRole('button', { name: 'Regenerate everything out of date' }).click();
+	await page.getByRole('button', { name: 'Generate everything' }).click();
 	const options = page.getByRole('button', { name: /^Use design \d as reference$/ });
 	await expect(options).toHaveCount(4);
 	await options.nth(0).click();
