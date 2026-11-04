@@ -20,8 +20,9 @@ export default defineConfig({
 	server: {
 		// Bind IPv4 loopback explicitly; Tailscale Serve proxies to 127.0.0.1.
 		host: '127.0.0.1',
-		// Allow access through Tailscale Serve (https://<machine>.<tailnet>.ts.net).
-		allowedHosts: ['.ts.net']
+		// Allow access through Tailscale Serve (https://<machine>.<tailnet>.ts.net)
+		// and the Cloudflare Tunnel (https://manga.dailykoss.org, behind Cloudflare Access).
+		allowedHosts: ['.ts.net', 'manga.dailykoss.org']
 	},
 	test: {
 		expect: { requireAssertions: true },
