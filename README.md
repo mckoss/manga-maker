@@ -83,6 +83,28 @@ first account. Sessions last 30 days and renew with use.
 server running from this checkout. See [PLAN.md](PLAN.md#hosting-and-exposure)
 for exposing it over Tailscale.
 
+### Reaching it from the internet
+
+A Cloudflare Tunnel publishes the dev server at `https://manga.dailykoss.org`,
+behind a Cloudflare Access login (one-time email code) that admits only the
+emails listed in the Access policy. Add or remove people in the Cloudflare
+dashboard under **Zero Trust → Access controls → Policies**.
+
+One-time setup on the host (already done on mac-studio):
+
+```sh
+brew install cloudflared
+cloudflared tunnel login                   # choose the dailykoss.org zone
+cloudflared tunnel create manga-maker
+# ~/.cloudflared/config.yml: route manga.dailykoss.org to http://127.0.0.1:5173
+cloudflared tunnel route dns manga-maker manga.dailykoss.org
+deploy/launchd/install-tunnel.sh          # keep the tunnel running at login
+```
+
+Create the Access application **before** routing DNS, so the hostname is never
+public without a login. The hostname must also be in `server.allowedHosts` in
+`vite.config.ts`. Tunnel logs are in `~/Library/Logs/manga-maker/tunnel*.log`.
+
 ## License
 
 [MIT](LICENSE)
