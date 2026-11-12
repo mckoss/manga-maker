@@ -14,9 +14,10 @@ export interface ImageRequest {
 }
 
 /**
- * An instruction-following edit of one to three images (Qwen-Image-Edit).
- * The first image sets the output's shape; the prompt calls the images
- * "image 1", "image 2" and "image 3".
+ * An instruction-following edit of one to three images (Qwen-Image-Edit;
+ * Qwen-Image 2.1 takes up to ten, MiniMax H3-Image sixteen). The first
+ * image sets the output's shape; the prompt calls the images "image 1",
+ * "image 2" and "image 3".
  */
 export interface EditRequest {
 	/** The chosen family; those that can't edit use Qwen-Image-Edit 2509. */

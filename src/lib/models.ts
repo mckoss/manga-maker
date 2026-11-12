@@ -5,7 +5,12 @@
 
 /** What a user chooses: a model family for drawing new pictures. */
 export type ImageModelId =
-	'qwen-image' | 'z-image' | 'qwen-image-2.1' | 'qwen-image-2.1-full' | 'qwen-image-2.1-strong';
+	| 'qwen-image'
+	| 'z-image'
+	| 'qwen-image-2.1'
+	| 'qwen-image-2.1-full'
+	| 'qwen-image-2.1-strong'
+	| 'minimax-h3-image';
 
 export const DEFAULT_IMAGE_MODEL: ImageModelId = 'qwen-image';
 
@@ -16,7 +21,9 @@ export const DEFAULT_IMAGE_MODEL: ImageModelId = 'qwen-image';
  * steps, about three times as long, for more detail). The strong-prompt
  * variant also weighs the prompt more heavily and steers away from the
  * series' Avoid list (a negative prompt), at twice the time again. The
- * other models are distilled for speed and can't do either.
+ * other models are distilled for speed and can't do either. MiniMax
+ * H3-Image (33B, 6 steps) also draws and edits, with up to 16 pictures; it
+ * is tuned for about 4 megapixels, so it draws at that size and scales down.
  */
 export const IMAGE_MODELS: Record<ImageModelId, { label: string; edits: string }> = {
 	'qwen-image': { label: 'Qwen-Image 2512', edits: 'edits with Qwen-Image-Edit 2509' },
@@ -29,6 +36,10 @@ export const IMAGE_MODELS: Record<ImageModelId, { label: string; edits: string }
 	'qwen-image-2.1-strong': {
 		label: 'Qwen-Image 2.1, strong prompt',
 		edits: 'follows the prompt more closely and avoids the Avoid list; slowest'
+	},
+	'minimax-h3-image': {
+		label: 'MiniMax H3-Image',
+		edits: 'draws and edits; draws at 4 MP and scales down'
 	}
 };
 
@@ -50,7 +61,8 @@ export const MODEL_LABELS: Record<string, string> = {
 	'qwen-image-2.1-turbo': 'Qwen-Image 2.1 Turbo',
 	'qwen-image-2.1': 'Qwen-Image 2.1 (25 steps)',
 	'qwen-image-2.1-strong': 'Qwen-Image 2.1 (25 steps, strong prompt)',
-	'qwen-image-edit-2509': 'Qwen-Image-Edit 2509 (Lightning 4-step)'
+	'qwen-image-edit-2509': 'Qwen-Image-Edit 2509 (Lightning 4-step)',
+	'minimax-h3-image': 'MiniMax H3-Image (6-step, pruned bf16)'
 };
 
 /** A recorded model's name: a known label, or the model's own name (text models). */

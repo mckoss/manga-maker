@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { buildEditWorkflow, buildWorkflow, STRONG_CFG } from './comfyui';
+import {
+	buildEditWorkflow,
+	buildWorkflow,
+	H3_AREA,
+	h3Canvas,
+	h3Prompt,
+	STRONG_CFG
+} from './comfyui';
 import { IMAGE_MODELS, type ImageModelId } from './image';
 
 describe('buildWorkflow', () => {
@@ -78,6 +85,56 @@ describe('buildWorkflow', () => {
 		);
 		expect(edit.guider.inputs.cfg).toBe(STRONG_CFG);
 		expect(edit.positive.inputs.negative_prompt).toBe('text');
+	});
+});
+
+describe('MiniMax H3-Image', () => {
+	it('draws on a ~4 MP canvas of the requested shape, then scales to the requested size', () => {
+		const wf = buildWorkflow({
+			model: 'minimax-h3-image',
+			prompt: 'ink',
+			seed: 7,
+			width: 1344,
+			height: 768
+		});
+		const { width, height } = wf.positive.inputs as { width: number; height: number };
+		expect(width % 32).toBe(0);
+		expect(height % 32).toBe(0);
+		expect(width / height).toBeCloseTo(1344 / 768, 1);
+		expect(Math.abs(width * height - H3_AREA) / H3_AREA).toBeLessThan(0.05);
+		expect(wf.positive.inputs.prompt).toBe('ink');
+		expect(wf.sampler.inputs).toMatchObject({
+			seed: 7,
+			steps: 6,
+			cfg: 1,
+			latent_image: ['positive', 1]
+		});
+		expect(wf.scale.inputs).toMatchObject({ width: 1344, height: 768 });
+		expect(wf.unet.inputs.unet_name).toBe('minimax_h3_image_pruned_bf16.safetensors');
+	});
+
+	it('keeps a square at the native 2048 × 2048', () => {
+		expect(h3Canvas(1024, 1024)).toEqual({ width: 2048, height: 2048 });
+	});
+
+	it('edits the first picture with the rest as references, named as H3 expects', () => {
+		const wf = buildEditWorkflow(
+			{ model: 'minimax-h3-image', prompt: 'put image 2 in front of Image 1', seed: 5 },
+			['a.png', 'b.png', 'c.png']
+		);
+		expect(wf.load1.inputs.image).toBe('a.png');
+		expect(wf.positive.inputs['images.image_1']).toEqual(['align', 0]);
+		expect(wf.load3.inputs.image).toBe('c.png');
+		expect(wf.positive.inputs['images.image_3']).toEqual(['load3', 0]);
+		expect(wf.positive.inputs.prompt).toBe('put <Picture 2> in front of <Picture 1>');
+		expect(wf.sampler.inputs.seed).toBe(5);
+		expect(() =>
+			buildEditWorkflow({ model: 'minimax-h3-image', prompt: '', seed: 1 }, Array(17).fill('a.png'))
+		).toThrow();
+	});
+
+	it('leaves other words alone when naming pictures', () => {
+		expect(h3Prompt('an image of image 3')).toBe('an image of <Picture 3>');
 	});
 });
 
