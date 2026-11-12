@@ -320,6 +320,19 @@ export function deleteScope(db: Db, scope: string): void {
 	if (ids.length) db.delete(items).where(inArray(items.id, ids)).run();
 }
 
+/**
+ * Delete some items of a scope, by slot key ("panel:p3k9x2"), with all their
+ * versions; jobs still making them are cancelled first. Unknown slots are ignored.
+ */
+export function deleteItems(db: Db, scope: string, slotKeys: string[]): void {
+	const wanted = new Set(slotKeys);
+	const ids = itemsIn(db, scope)
+		.filter((i) => wanted.has(slotKey(i)))
+		.map((i) => i.id);
+	dropPending(db, ids);
+	if (ids.length) db.delete(items).where(inArray(items.id, ids)).run();
+}
+
 // ---------------------------------------------------------------------------
 // Views
 

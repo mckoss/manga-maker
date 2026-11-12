@@ -806,6 +806,12 @@ export function storyContext(s: PlotState): string[] {
 	return lines;
 }
 
+/** `storyContext` for a chapter by id, for steps beside the plot (the script's help). */
+export function chapterContext(db: Db, chapterId: number): string[] {
+	const s = loadState(db, chapterId);
+	return s ? storyContext(s) : [];
+}
+
 const structureReply = z.object({ structure: z.string(), reason: z.string().default('') });
 
 export function structureMessages(s: PlotState, guidance: string) {

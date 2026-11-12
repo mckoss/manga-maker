@@ -35,7 +35,9 @@ const PINNED: Record<PromptId, [hash: string, length: number]> = {
 	'plot.beats': ['a40abc68f347', 1446],
 	'plot.review': ['4bc7243f2046', 972],
 	'plot.questions': ['d6728d987cfc', 877],
-	'plot.fold': ['a00ce028afa1', 471]
+	'plot.fold': ['a00ce028afa1', 471],
+	'script.layout': ['f3afbb6a1dd9', 2309],
+	'script.fill': ['1c53a8a98e71', 2197]
 };
 
 afterEach(() => setPromptOverride(null));

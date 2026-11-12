@@ -6,6 +6,7 @@ import { styleJobHandlers } from './styles';
 import { logoJobHandlers } from './logos';
 import { locationJobHandlers } from './locations';
 import { plotJobHandlers } from './plots';
+import { scriptJobHandlers } from './scripts';
 
 // Kept on globalThis so dev-mode module reloads replace the worker instead of
 // starting a second one alongside it.
@@ -26,7 +27,8 @@ export function startWorker(): void {
 		...characterJobHandlers,
 		...logoJobHandlers,
 		...locationJobHandlers,
-		...plotJobHandlers
+		...plotJobHandlers,
+		...scriptJobHandlers
 	});
 	g[KEY] = worker;
 	worker.start();

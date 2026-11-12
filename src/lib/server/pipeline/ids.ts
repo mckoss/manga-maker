@@ -5,7 +5,14 @@
  * literals and `split(':')` by hand.
  */
 
-export const SCOPE_KINDS = ['character', 'location', 'chapter', 'style', 'series', 'script'] as const;
+export const SCOPE_KINDS = [
+	'character',
+	'location',
+	'chapter',
+	'style',
+	'series',
+	'script'
+] as const;
 export type ScopeKind = (typeof SCOPE_KINDS)[number];
 
 /** A scope string, "<kind>:<id>". */
