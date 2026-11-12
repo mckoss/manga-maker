@@ -189,6 +189,38 @@ Follow-ups noticed along the way:
       recorded in their inputs, so a change there doesn't make them out of
       date
 
+## Milestone 4a: the script, written by hand
+
+See "3b. Script" in [PLAN.md](PLAN.md).
+
+- [ ] Script items in the scope `script:<chapterId>`; deleting a chapter
+      deletes them; shared types and parsing in `src/lib/script.ts`
+- [ ] Page board: the plot's beats with planned vs laid-out pages; add,
+      remove and move pages; purpose and page-turn per page
+- [ ] Panels per page: shot, location, who's in it, action; key panel;
+      add, remove and move panels
+- [ ] Words per panel: speech, thought, caption, sfx blocks with speaker
+- [ ] A beat edit marks its pages "Beat changed"; pages of a beat no longer
+      in the outline are listed apart
+- [ ] Unit and e2e tests
+
+## Milestone 4b: help that fills blanks
+
+- [ ] `script.layout`: lay out one beat that has no pages yet (pages,
+      panels, staging, cues); never words
+- [ ] `script.fill`: fill a page's empty staging fields and cues; filled
+      fields are left alone, even if filled while the job ran
+- [ ] "AI draft" marks on fields the AI wrote and the user hasn't touched
+- [ ] Unit test: no script job ever writes a `words:` item
+
+## Milestone 4c: help with words, review
+
+- [ ] Suggest lines for one text block: alternatives beside it; Accept /
+      Dismiss
+- [ ] Script review: notes anchored to pages and panels; Accept fix /
+      Dismiss
+- [ ] Preview: text-only page thumbnails in the reading direction
+
 ## Next
 
 - [ ] Locations (milestone 3)

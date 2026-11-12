@@ -122,6 +122,65 @@ before any character is drawn so every reference sheet is made in it.
   act consistently with their profiles, pacing fits the page count, page-turn
   reveals land on odd/even pages correctly.
 
+### 3b. Script: the writer writes, the AI helps
+
+The script is where the comic gets its voice, so it is the step that asks
+the most of the user. The plot may be drafted by the AI; the script is the
+user's. The AI **helps when asked and never rewrites**:
+
+- **Fills blanks, never overwrites.** "Help me lay out this beat" and "Help
+  me fill this in" write only into empty fields. Anything the user wrote (or
+  accepted) is never changed by a job; a job that finds a field filled when
+  it finishes leaves it alone.
+- **Staging is shared; the words are the user's.** The AI may draft
+  _staging_: the pages of a beat, what each panel shows, the shot, who is in
+  it and where. Everything a reader reads (speech balloons, thoughts,
+  captions, narration and exposition, sound effects) is the user's to write.
+  No job writes words into the script.
+- **Help with words is on request and goes through Accept.** For an empty
+  balloon, a _cue_ (a question, such as "What does Mira say when she sees
+  the letter?") to start the user off, never the line itself. For a line,
+  "Suggest lines" shows two or three alternatives beside it; the user's line
+  stays until they accept one.
+- **Review gives notes, not rewrites.** The script editor's review leaves
+  notes anchored to a page or panel ("Panel 3: the line explains what the
+  art shows"). A note may carry a suggested fix, applied only on Accept.
+- **Changes upstream flag, never regenerate.** When a beat changes, its pages
+  show "Beat changed" and the user decides; nothing in the script cascades.
+
+**Shape.** Items in the scope `script:<chapterId>`, beside the plot's
+`chapter:<chapterId>` (types in `src/lib/script.ts`):
+
+| slot          | holds                                                                                   |
+| ------------- | --------------------------------------------------------------------------------------- |
+| `layout`      | the pages in reading order: id, beat, purpose, page turn, key panel, panel ids in order |
+| `panel:<pid>` | staging: shot, location id, character ids, action, cue; which fields the AI drafted     |
+| `words:<pid>` | the panel's text blocks: kind (speech, thought, caption, sfx), speaker id, text         |
+| `review`      | the script editor's anchored notes (with optional suggested fixes)                      |
+| `lines:<bid>` | suggested alternatives for one text block, shown beside it until accepted or dismissed  |
+
+Characters and locations are referenced by id, so a rename never rewrites
+the script. A panel records the digest of its page's beat as its input, so a
+beat edit marks it out of date. Every AI step goes through the prompt
+registry (`script.*` ids) and keeps its run record, as elsewhere. Field-level
+provenance: a panel lists the fields the AI drafted and the user has not
+touched since, shown as "AI draft" until edited.
+
+**Steps** (the page shows them in this order, like the plot's flow):
+
+1. **Pages**: a board of the plot's beats, each with its planned page count;
+   the user adds, removes and orders pages, says what each page is for and
+   marks page-turn reveals. Help: lay out one beat (pages and panels with
+   staging) when it has no pages yet.
+2. **Panels**: per page, its panels with shot, who, where and what they
+   show; the user marks the key panel. Help: fill in a page's blanks.
+3. **Words**: per panel, its text blocks. Help: a cue in an empty balloon;
+   suggested lines on request.
+4. **Review**: the script editor's anchored notes, each with Accept fix
+   (when it has one) and Dismiss.
+5. **Preview** (later): text-only page thumbnails in the reading direction,
+   to read the chapter and feel its pacing before any picture is drawn.
+
 ### 4. Manga generation
 
 - Per-panel image prompts are **compiled** from structured data: style spec + style reference +
