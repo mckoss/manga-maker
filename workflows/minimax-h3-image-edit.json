@@ -1,7 +1,10 @@
 {
 	"unet": {
 		"class_type": "UNETLoader",
-		"inputs": { "unet_name": "minimax_h3_image_pruned_bf16.safetensors", "weight_dtype": "default" }
+		"inputs": {
+			"unet_name": "minimax_h3_image_pruned_bf16.safetensors",
+			"weight_dtype": "default"
+		}
 	},
 	"clip": {
 		"class_type": "CLIPLoader",
@@ -13,9 +16,16 @@
 	},
 	"vae": {
 		"class_type": "VAELoader",
-		"inputs": { "vae_name": "minimax_h3_image_vae_fp16.safetensors" }
+		"inputs": {
+			"vae_name": "minimax_h3_image_vae_fp16.safetensors"
+		}
 	},
-	"load1": { "class_type": "LoadImage", "inputs": { "image": "" } },
+	"load1": {
+		"class_type": "LoadImage",
+		"inputs": {
+			"image": ""
+		}
+	},
 	"upscale": {
 		"class_type": "ResizeImageMaskNode",
 		"inputs": {
@@ -34,7 +44,12 @@
 			"scale_method": "area"
 		}
 	},
-	"size": { "class_type": "GetImageSize", "inputs": { "image": ["align", 0] } },
+	"size": {
+		"class_type": "GetImageSize",
+		"inputs": {
+			"image": ["align", 0]
+		}
+	},
 	"positive": {
 		"class_type": "MiniMaxH3ImageConditioning",
 		"inputs": {
@@ -48,7 +63,9 @@
 	},
 	"negative": {
 		"class_type": "ConditioningZeroOut",
-		"inputs": { "conditioning": ["positive", 0] }
+		"inputs": {
+			"conditioning": ["positive", 0]
+		}
 	},
 	"sampler": {
 		"class_type": "KSampler",
@@ -67,19 +84,16 @@
 	},
 	"decode": {
 		"class_type": "VAEDecode",
-		"inputs": { "samples": ["sampler", 0], "vae": ["vae", 0] }
-	},
-	"scale": {
-		"class_type": "ImageScaleToTotalPixels",
 		"inputs": {
-			"image": ["decode", 0],
-			"upscale_method": "area",
-			"megapixels": 1.0,
-			"resolution_steps": 16
+			"samples": ["sampler", 0],
+			"vae": ["vae", 0]
 		}
 	},
 	"save": {
 		"class_type": "SaveImage",
-		"inputs": { "images": ["scale", 0], "filename_prefix": "manga-maker/edit" }
+		"inputs": {
+			"images": ["decode", 0],
+			"filename_prefix": "manga-maker/edit"
+		}
 	}
 }

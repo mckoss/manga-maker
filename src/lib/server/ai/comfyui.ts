@@ -72,8 +72,22 @@ export const H3_AREA = 2048 * 2048;
 /** MiniMax H3-Image canvas edges are multiples of this. */
 const H3_MULTIPLE = 32;
 
-/** The ~4 MP canvas MiniMax H3-Image draws a width × height picture on. */
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+
+/**
+ * The ~4 MP canvas MiniMax H3-Image draws a width × height picture on: the
+ * exact shape when a canvas within 25% of 4 MP has it, else the nearest.
+ */
 export function h3Canvas(width: number, height: number): { width: number; height: number } {
+	// In lowest terms at least one side is odd, so the exact shape's canvases
+	// are the lowest-terms shape times multiples of 32.
+	const g = gcd(width, height);
+	const unit = (width / g) * (height / g) * H3_MULTIPLE * H3_MULTIPLE;
+	const k = Math.max(1, Math.round(Math.sqrt(H3_AREA / unit)));
+	if (Math.abs(unit * k * k - H3_AREA) <= H3_AREA / 4) {
+		const m = H3_MULTIPLE * k;
+		return { width: (width / g) * m, height: (height / g) * m };
+	}
 	const scale = Math.sqrt(H3_AREA / (width * height));
 	const fit = (n: number) =>
 		Math.max(H3_MULTIPLE, Math.round((n * scale) / H3_MULTIPLE) * H3_MULTIPLE);
@@ -85,21 +99,20 @@ export const h3Prompt = (prompt: string) => prompt.replace(/\bimage (\d+)\b/gi, 
 
 /**
  * MiniMax H3-Image draws on a ~4 MP canvas of the requested shape (6 steps,
- * no guidance, as ComfyUI's template), then scales to the requested size.
+ * no guidance, as ComfyUI's template) and keeps that full resolution; the
+ * picture's shape matches the request, its size is larger.
  */
 function buildMiniMaxWorkflow(req: ImageRequest): Workflow {
 	const wf = loadWorkflow('minimax-h3-image');
 	Object.assign(wf.positive.inputs, { prompt: req.prompt, ...h3Canvas(req.width, req.height) });
 	wf.sampler.inputs.seed = req.seed;
-	Object.assign(wf.scale.inputs, { width: req.width, height: req.height });
 	return wf;
 }
 
 /**
  * A MiniMax H3-Image edit: the first picture, upscaled to ~4 MP as
  * ComfyUI's template does, sets the canvas; the others are references (up
- * to 16 in all). The result is scaled to about one megapixel like the
- * other models' edits.
+ * to 16 in all). The result keeps that ~4 MP canvas.
  */
 function buildMiniMaxEditWorkflow(req: Omit<EditRequest, 'images'>, inputs: string[]): Workflow {
 	if (inputs.length < 1 || inputs.length > 16)

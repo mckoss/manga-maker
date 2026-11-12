@@ -23,7 +23,7 @@ export const DEFAULT_IMAGE_MODEL: ImageModelId = 'qwen-image';
  * series' Avoid list (a negative prompt), at twice the time again. The
  * other models are distilled for speed and can't do either. MiniMax
  * H3-Image (33B, 6 steps) also draws and edits, with up to 16 pictures; it
- * is tuned for about 4 megapixels, so it draws at that size and scales down.
+ * is tuned for about 4 megapixels and keeps pictures at that size.
  */
 export const IMAGE_MODELS: Record<ImageModelId, { label: string; edits: string }> = {
 	'qwen-image': { label: 'Qwen-Image 2512', edits: 'edits with Qwen-Image-Edit 2509' },
@@ -39,7 +39,7 @@ export const IMAGE_MODELS: Record<ImageModelId, { label: string; edits: string }
 	},
 	'minimax-h3-image': {
 		label: 'MiniMax H3-Image',
-		edits: 'draws and edits; draws at 4 MP and scales down'
+		edits: 'draws and edits; full 4 MP pictures'
 	}
 };
 

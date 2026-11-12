@@ -89,7 +89,7 @@ describe('buildWorkflow', () => {
 });
 
 describe('MiniMax H3-Image', () => {
-	it('draws on a ~4 MP canvas of the requested shape, then scales to the requested size', () => {
+	it('draws on a ~4 MP canvas of the requested shape and keeps it', () => {
 		const wf = buildWorkflow({
 			model: 'minimax-h3-image',
 			prompt: 'ink',
@@ -109,12 +109,22 @@ describe('MiniMax H3-Image', () => {
 			cfg: 1,
 			latent_image: ['positive', 1]
 		});
-		expect(wf.scale.inputs).toMatchObject({ width: 1344, height: 768 });
+		expect(wf.scale).toBeUndefined();
+		expect(wf.save.inputs.images).toEqual(['decode', 0]);
 		expect(wf.unet.inputs.unet_name).toBe('minimax_h3_image_pruned_bf16.safetensors');
 	});
 
-	it('keeps a square at the native 2048 × 2048', () => {
+	it('keeps the exact shape when a canvas near 4 MP has it', () => {
 		expect(h3Canvas(1024, 1024)).toEqual({ width: 2048, height: 2048 });
+		expect(h3Canvas(768, 1344)).toEqual({ width: 1536, height: 2688 });
+		expect(h3Canvas(1344, 768)).toEqual({ width: 2688, height: 1536 });
+	});
+
+	it('falls back to the nearest multiples of 32 for awkward shapes', () => {
+		const { width, height } = h3Canvas(1000, 997);
+		expect(width % 32).toBe(0);
+		expect(height % 32).toBe(0);
+		expect(width / height).toBeCloseTo(1000 / 997, 1);
 	});
 
 	it('edits the first picture with the rest as references, named as H3 expects', () => {
