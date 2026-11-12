@@ -16,14 +16,21 @@ const ENGINES: Record<ImageModelId, { generate: string; edit: string }> = {
 	'z-image': { generate: 'z-image-turbo', edit: 'qwen-image-edit-2509' },
 	'qwen-image-2.1': { generate: 'qwen-image-2.1-turbo', edit: 'qwen-image-2.1-turbo' },
 	'qwen-image-2.1-full': { generate: 'qwen-image-2.1', edit: 'qwen-image-2.1' },
-	'qwen-image-2.1-strong': { generate: 'qwen-image-2.1-strong', edit: 'qwen-image-2.1-strong' }
+	'qwen-image-2.1-strong': { generate: 'qwen-image-2.1-strong', edit: 'qwen-image-2.1-strong' },
+	'minimax-h3-image': { generate: 'minimax-h3-image', edit: 'minimax-h3-image' }
 };
 
 /** The strong-prompt variant's guidance: each step runs twice, with and without the prompt. */
 export const STRONG_CFG = 4;
 
 type WorkflowName =
-	'qwen-image' | 'z-image' | 'qwen-image-2.1' | 'qwen-image-edit' | 'qwen-image-2.1-edit';
+	| 'qwen-image'
+	| 'z-image'
+	| 'qwen-image-2.1'
+	| 'qwen-image-edit'
+	| 'qwen-image-2.1-edit'
+	| 'minimax-h3-image'
+	| 'minimax-h3-image-edit';
 
 function loadWorkflow(name: WorkflowName): Workflow {
 	return JSON.parse(fs.readFileSync(path.join(WORKFLOW_DIR, `${name}.json`), 'utf8'));
@@ -58,8 +65,73 @@ function useFullQwen21(wf: Workflow): Workflow {
 	return wf;
 }
 
+const isMiniMax = (model?: ImageModelId) => model === 'minimax-h3-image';
+
+/** The pixel area MiniMax H3-Image is tuned for; it draws poorly much below it. */
+export const H3_AREA = 2048 * 2048;
+/** MiniMax H3-Image canvas edges are multiples of this. */
+const H3_MULTIPLE = 32;
+
+const gcd = (a: number, b: number): number => (b ? gcd(b, a % b) : a);
+
+/**
+ * The ~4 MP canvas MiniMax H3-Image draws a width × height picture on: the
+ * exact shape when a canvas within 25% of 4 MP has it, else the nearest.
+ */
+export function h3Canvas(width: number, height: number): { width: number; height: number } {
+	// In lowest terms at least one side is odd, so the exact shape's canvases
+	// are the lowest-terms shape times multiples of 32.
+	const g = gcd(width, height);
+	const unit = (width / g) * (height / g) * H3_MULTIPLE * H3_MULTIPLE;
+	const k = Math.max(1, Math.round(Math.sqrt(H3_AREA / unit)));
+	if (Math.abs(unit * k * k - H3_AREA) <= H3_AREA / 4) {
+		const m = H3_MULTIPLE * k;
+		return { width: (width / g) * m, height: (height / g) * m };
+	}
+	const scale = Math.sqrt(H3_AREA / (width * height));
+	const fit = (n: number) =>
+		Math.max(H3_MULTIPLE, Math.round((n * scale) / H3_MULTIPLE) * H3_MULTIPLE);
+	return { width: fit(width), height: fit(height) };
+}
+
+/** MiniMax H3-Image calls the edit's pictures <Picture 1>, <Picture 2>, …; our prompts say "image 1". */
+export const h3Prompt = (prompt: string) => prompt.replace(/\bimage (\d+)\b/gi, '<Picture $1>');
+
+/**
+ * MiniMax H3-Image draws on a ~4 MP canvas of the requested shape (6 steps,
+ * no guidance, as ComfyUI's template) and keeps that full resolution; the
+ * picture's shape matches the request, its size is larger.
+ */
+function buildMiniMaxWorkflow(req: ImageRequest): Workflow {
+	const wf = loadWorkflow('minimax-h3-image');
+	Object.assign(wf.positive.inputs, { prompt: req.prompt, ...h3Canvas(req.width, req.height) });
+	wf.sampler.inputs.seed = req.seed;
+	return wf;
+}
+
+/**
+ * A MiniMax H3-Image edit: the first picture, upscaled to ~4 MP as
+ * ComfyUI's template does, sets the canvas; the others are references (up
+ * to 16 in all). The result keeps that ~4 MP canvas.
+ */
+function buildMiniMaxEditWorkflow(req: Omit<EditRequest, 'images'>, inputs: string[]): Workflow {
+	if (inputs.length < 1 || inputs.length > 16)
+		throw new ComfyError('An edit takes one to sixteen images.');
+	const wf = loadWorkflow('minimax-h3-image-edit');
+	wf.load1.inputs.image = inputs[0];
+	inputs.slice(1).forEach((name, i) => {
+		const n = i + 2;
+		wf[`load${n}`] = { class_type: 'LoadImage', inputs: { image: name } };
+		wf.positive.inputs[`images.image_${n}`] = [`load${n}`, 0];
+	});
+	wf.positive.inputs.prompt = h3Prompt(req.prompt);
+	wf.sampler.inputs.seed = req.seed;
+	return wf;
+}
+
 /** Fill a text-to-image workflow template with a request's settings. */
 export function buildWorkflow(req: ImageRequest): Workflow {
+	if (isMiniMax(req.model)) return buildMiniMaxWorkflow(req);
 	const wf = isQwen21(req.model)
 		? qwen21(loadWorkflow('qwen-image-2.1'), req.model, req.negative)
 		: loadWorkflow(req.model as WorkflowName);
@@ -82,6 +154,7 @@ export function buildWorkflow(req: ImageRequest): Workflow {
  * takes up to ten; the other families use Qwen-Image-Edit 2509, up to three.
  */
 export function buildEditWorkflow(req: Omit<EditRequest, 'images'>, inputs: string[]): Workflow {
+	if (isMiniMax(req.model)) return buildMiniMaxEditWorkflow(req, inputs);
 	if (isQwen21(req.model)) {
 		if (inputs.length < 1 || inputs.length > 10)
 			throw new ComfyError('An edit takes one to ten images.');

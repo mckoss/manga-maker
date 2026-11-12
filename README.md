@@ -66,6 +66,12 @@ ComfyUI's model folders:
   `loras/Qwen-Image-2512-Lightning-4steps-V1.0-fp32.safetensors`
 - `diffusion_models/z_image_turbo_bf16.safetensors`,
   `text_encoders/qwen_3_4b.safetensors`, `vae/ae.safetensors`
+- MiniMax H3-Image (ComfyUI 0.45.0 or later):
+  `diffusion_models/minimax_h3_image_pruned_bf16.safetensors`,
+  `text_encoders/qwen3vl_32b_minimax_h3_bf16.safetensors`,
+  `vae/minimax_h3_image_vae_fp16.safetensors` (about 92 GB; its community
+  license excludes the US, EU, UK and South Korea, so it is for private
+  testing here)
 
 Without them, run with `AI_BACKEND=fake` to try the app with placeholder images
 and canned AI replies. See [docs/style-evaluation.md](docs/style-evaluation.md)
