@@ -26,6 +26,7 @@ import {
 	PLOT_STRUCTURE
 } from './plot';
 import { definePrompt, promptTable, type Prompt } from './registry';
+import { SCRIPT_FILL, SCRIPT_LAYOUT } from './script';
 import { STYLE_FOLD, STYLE_PROMPT, STYLE_QUESTIONS, STYLE_SCENES } from './style';
 
 export { definePrompt, promptHash, promptTable, type Prompt } from './registry';
@@ -44,7 +45,9 @@ const BUILT_IN = [
 	PLOT_BEATS,
 	PLOT_REVIEW,
 	PLOT_QUESTIONS,
-	PLOT_FOLD
+	PLOT_FOLD,
+	SCRIPT_LAYOUT,
+	SCRIPT_FILL
 ] as const;
 
 export type PromptId = (typeof BUILT_IN)[number]['id'];

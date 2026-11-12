@@ -5,7 +5,14 @@
  * literals and `split(':')` by hand.
  */
 
-export const SCOPE_KINDS = ['character', 'location', 'chapter', 'style', 'series'] as const;
+export const SCOPE_KINDS = [
+	'character',
+	'location',
+	'chapter',
+	'style',
+	'series',
+	'script'
+] as const;
 export type ScopeKind = (typeof SCOPE_KINDS)[number];
 
 /** A scope string, "<kind>:<id>". */
@@ -29,7 +36,8 @@ export const scopeOf: { [K in ScopeKind]: (id: number) => Scope<K> } = {
 	location: scopeFor('location'),
 	chapter: scopeFor('chapter'),
 	style: scopeFor('style'),
-	series: scopeFor('series')
+	series: scopeFor('series'),
+	script: scopeFor('script')
 };
 
 export function isScopeKind(value: string): value is ScopeKind {

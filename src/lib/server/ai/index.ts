@@ -164,6 +164,54 @@ function fakePlotFoldReply(request: string) {
 }
 
 /**
+ * A canned page layout: as many pages as "Pages to lay out: N" asks, three
+ * panels each, with cues and no words.
+ */
+function fakeScriptLayoutReply(request: string) {
+	const n = Number(request.match(/^Pages to lay out: (\d+)$/m)?.[1] ?? 1);
+	const shots = ['establishing', 'medium', 'close'];
+	return {
+		pages: Array.from({ length: n }, (_, p) => ({
+			purpose: `Page ${p + 1} of the beat: a fake moment.`,
+			turn: p === n - 1,
+			panels: shots.map((shot, i) => ({
+				shot,
+				location: '',
+				characters: [],
+				action: `Fake panel ${i + 1}: someone does something.`,
+				cue: i === 1 ? 'What do they say here?' : ''
+			}))
+		})),
+		notes: 'Fake AI backend: three panels a page.'
+	};
+}
+
+/**
+ * Canned blanks for a page: one panel for each "- panel <id>: …" line the
+ * request lists, and "New panels: N" new ones.
+ */
+function fakeScriptFillReply(request: string) {
+	const ids = [...request.matchAll(/^- panel ([a-z0-9]+):/gm)].map((m) => m[1]!);
+	const fresh = Number(request.match(/^New panels: (\d+)$/m)?.[1] ?? 0);
+	const panel = (id: string, i: number) => ({
+		id,
+		shot: 'medium',
+		location: '',
+		characters: [],
+		action: `Fake staging ${i + 1}.`,
+		cue: 'What do they say here?'
+	});
+	return {
+		purpose: /^Page purpose: \(blank\)$/m.test(request) ? 'A fake purpose for the page.' : '',
+		panels: [
+			...ids.map(panel),
+			...Array.from({ length: fresh }, (_, i) => panel('', ids.length + i))
+		],
+		notes: ''
+	};
+}
+
+/**
  * A canned reply for every prompt the app sends, by prompt id. Exhaustive:
  * a new prompt without a fake reply fails the type check.
  */
@@ -204,7 +252,9 @@ export const fakeReplies: Record<PromptId, FakeReplyFn> = {
 			{ question: 'How should the chapter end?', suggestions: ['A cliffhanger', 'Resolved'] }
 		]
 	}),
-	'plot.fold': (m) => fakePlotFoldReply(userMessage(m))
+	'plot.fold': (m) => fakePlotFoldReply(userMessage(m)),
+	'script.layout': (m) => fakeScriptLayoutReply(userMessage(m)),
+	'script.fill': (m) => fakeScriptFillReply(userMessage(m))
 };
 
 /** Answers each request the app makes with the canned reply for its prompt id. */
