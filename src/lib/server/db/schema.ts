@@ -30,9 +30,13 @@ export const assets = sqliteTable('assets', {
 	createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull()
 });
 
-export type JobStatus = 'queued' | 'running' | 'done' | 'failed' | 'canceled';
+/** A paused job waits, skipped by the worker, until it is resumed (queued again). */
+export type JobStatus = 'queued' | 'paused' | 'running' | 'done' | 'failed' | 'canceled';
 
-/** Background work (AI calls), run one at a time by the worker. */
+/** The worker's lanes: text jobs (the LLM) and image jobs (ComfyUI) run side by side. */
+export type JobLane = 'text' | 'image';
+
+/** Background work (AI calls), run one at a time per lane by the worker (see jobs.ts). */
 export const jobs = sqliteTable('jobs', {
 	id: integer('id').primaryKey({ autoIncrement: true }),
 	userId: integer('user_id')
@@ -48,6 +52,12 @@ export const jobs = sqliteTable('jobs', {
 });
 
 export type Job = typeof jobs.$inferSelect;
+
+/** A lane paused by an admin: the worker starts nothing new in it until resumed. */
+export const jobLanes = sqliteTable('job_lanes', {
+	lane: text('lane').$type<JobLane>().primaryKey(),
+	paused: integer('paused', { mode: 'boolean' }).notNull().default(false)
+});
 
 export type ColorMode = 'bw' | 'grayscale' | 'limited' | 'color';
 

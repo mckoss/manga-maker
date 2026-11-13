@@ -221,6 +221,15 @@ See "3b. Script" in [PLAN.md](PLAN.md).
       Dismiss
 - [ ] Preview: text-only page thumbnails in the reading direction
 
+## Job lanes and the Queue page (v0.29.0)
+
+- [x] Two worker lanes, text and image, one job at a time each; a job waits
+      for older jobs in the other lane making items in the same scope
+- [x] Pause, resume and stop a job; pausing a running job restarts it later
+- [x] Admins pause a whole lane (`job_lanes`, migration 0017)
+- [x] Queue page: running and waiting jobs per lane, recent results,
+      switch a waiting picture's image model; header link with a count
+
 ## Next
 
 - [ ] Locations (milestone 3)

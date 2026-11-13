@@ -381,11 +381,30 @@ output, validated before saving.
 
 ### Jobs
 
-The GPU is one shared resource. Requests enqueue a `job` row; one in-process
-worker runs jobs one at a time, oldest first. Jobs left running by a restart
-are queued again, and canceled jobs are aborted (ComfyUI prompts are removed
-from its queue or interrupted). Pages poll every two seconds while their jobs
-run; with one or two users that is simpler than server-sent events.
+Requests enqueue a `job` row. One in-process worker runs two **lanes** side
+by side, each one job at a time, oldest first: **text** (the LLM, through
+Ollama) and **image** (ComfyUI). The host has the unified memory to keep both
+models loaded, so a short text step no longer waits behind a batch of
+pictures; two pictures never draw at once. Each job kind belongs to one lane
+(`IMAGE_JOB_KINDS` in `jobs.ts`; no job both writes and draws).
+
+Order across lanes still matters where one job feeds another: a job waits
+for older unfinished jobs in the other lane making items in the same scope
+(a style's picture queued behind the job writing its prompt), shown on the
+Queue page as "Waiting for #n".
+
+Jobs left running by a restart are queued again, and canceled jobs are
+aborted (ComfyUI prompts are removed from its queue or interrupted). A job
+can be **paused** (status `paused`, skipped until resumed; pausing a running
+job stops it, and it starts over when resumed) or **stopped** (canceled). An
+admin can pause a whole lane (`job_lanes`); its running job finishes. The
+**Queue** page (header link, with a count of the user's active jobs) shows
+each lane's running job and what waits behind it, recent results, and these
+controls, plus switching a waiting picture to another image model (its
+pending versions carry the model the job reads). Users see only their own
+jobs' details; an admin sees everyone's. Pages poll every two seconds while
+their jobs run; with one or two users that is simpler than server-sent
+events.
 
 ### Versioned items
 

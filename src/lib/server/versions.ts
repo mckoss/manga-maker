@@ -432,7 +432,10 @@ export function describeScope(
 					promptChanged: promptChanged(v.promptId, v.promptHash),
 					runHash: v.runHash
 				})),
-			pending: unfinished.some((r) => r.jobStatus === 'queued' || r.jobStatus === 'running'),
+			// A paused job still means a version is on its way.
+			pending: unfinished.some(
+				(r) => r.jobStatus === 'queued' || r.jobStatus === 'running' || r.jobStatus === 'paused'
+			),
 			error: failed ? (failed.jobError ?? 'It failed.') : null
 		});
 	}
