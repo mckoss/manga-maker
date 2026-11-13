@@ -38,6 +38,12 @@
 			<a href={resolve('/')} aria-current={page.url.pathname === '/' ? 'page' : undefined}
 				>My manga</a
 			>
+			<a
+				href={resolve('/queue')}
+				aria-current={page.url.pathname === '/queue' ? 'page' : undefined}
+				aria-label={data.queued ? `Queue, ${data.queued} active` : undefined}
+				>Queue{#if data.queued}&nbsp;<span class="badge shu count">{data.queued}</span>{/if}</a
+			>
 			{#if data.user.isAdmin}<a href={resolve('/admin/users')}>Users</a>{/if}
 			<a href={resolve('/account')}>{data.user.username}</a>
 			<form method="POST" action={resolve('/logout')}>
@@ -50,3 +56,11 @@
 <main>
 	{@render children()}
 </main>
+
+<style>
+	.count {
+		margin-left: 2px;
+		padding: 0 5px;
+		vertical-align: 1px;
+	}
+</style>
